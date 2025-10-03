@@ -13,6 +13,9 @@ code-auto-grader
 *.so
 *.dylib
 
+# Vite build output
+web/dist/
+
 # Environment variables
 .env
 

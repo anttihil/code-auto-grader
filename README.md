@@ -5,10 +5,10 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
 ## Features
 
 - 🤖 **AI-Powered Exercise Generation**: Generate custom coding exercises using Gemini AI
-- 📝 **Interactive Code Editor**: Built-in code editor with syntax highlighting (CodeMirror)
+- 📝 **Interactive Code Editor**: Built-in code editor with SolidJS reactive framework
 - ⚡ **Secure Code Execution**: Run submitted code securely in an isolated environment
 - 💬 **Intelligent Feedback**: Get detailed AI-powered feedback on code submissions
-- 🔒 **Security Features**: Rate limiting, helmet protection, and code sanitization
+- 🔒 **Security Features**: Rate limiting, security headers, and code sanitization
 - 🌐 **Multi-Language Support**: JavaScript and Python support (extensible)
 
 ## Architecture
@@ -25,10 +25,12 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
   - `geminiService`: Integration with Google Gemini API for exercise generation and code evaluation
   - `codeExecutionService`: Secure code execution with timeout and resource limits
 
-### Frontend (HTML/CSS/JavaScript)
-- Modern, responsive web interface
+### Frontend (Vite + SolidJS)
+- Modern, reactive web interface built with SolidJS
+- Fast development with Vite bundler and HMR
 - Built-in code editor with syntax highlighting
 - Real-time code execution and feedback display
+- Component-based architecture for maintainability
 
 ### Security Measures
 1. **Code Execution**:
@@ -48,6 +50,7 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
 
 ### Prerequisites
 - Go 1.20 or higher
+- Node.js and npm (for building the frontend)
 - A Gemini API key (get one at https://makersuite.google.com/app/apikey)
 
 ### Installation
@@ -63,12 +66,20 @@ cd code-auto-grader
 go mod download
 ```
 
-3. Create a `.env` file from the example:
+3. Build the frontend:
+```bash
+cd web
+npm install
+npm run build
+cd ..
+```
+
+4. Create a `.env` file from the example:
 ```bash
 cp .env.example .env
 ```
 
-4. Add your Gemini API key to the `.env` file:
+5. Add your Gemini API key to the `.env` file:
 ```
 GEMINI_API_KEY=your_actual_api_key_here
 PORT=3000
@@ -76,21 +87,34 @@ PORT=3000
 
 ### Running the Application
 
-Start the server:
+**Production Mode:**
 ```bash
-# Build the application
+# Build the Go application
 go build -o code-auto-grader
 
-# Run the server
+# Run the server (serves the built Vite app)
 ./code-auto-grader
 ```
 
-Or run directly without building:
+**Development Mode:**
+
+For the best development experience, run the frontend and backend separately:
+
+1. Start the Go backend:
 ```bash
 go run main.go
 ```
 
-The application will be available at `http://localhost:3000`
+2. In a separate terminal, start the Vite dev server:
+```bash
+cd web
+npm run dev
+```
+
+The Vite dev server will run on `http://localhost:5173` with hot module replacement, and it will proxy API requests to the Go backend on port 3000.
+
+**Production:** The application will be available at `http://localhost:3000`
+**Development:** Access the app at `http://localhost:5173` (with HMR)
 
 ## Usage
 
@@ -152,10 +176,15 @@ code-auto-grader/
 ├── services/
 │   ├── gemini.go              # Gemini AI integration
 │   └── code_execution.go      # Secure code execution
-├── public/
-│   ├── index.html             # Frontend UI
-│   ├── styles.css             # Styling
-│   └── app.js                 # Frontend JavaScript
+├── web/                       # Vite + SolidJS frontend
+│   ├── src/
+│   │   ├── App.jsx            # Main SolidJS application component
+│   │   ├── index.jsx          # Entry point
+│   │   └── styles.css         # Application styles
+│   ├── index.html             # HTML entry point
+│   ├── vite.config.js         # Vite configuration
+│   ├── package.json           # Frontend dependencies
+│   └── dist/                  # Built production files (gitignored)
 ├── .env.example               # Environment variables template
 ├── .gitignore
 ├── go.mod                     # Go module definition

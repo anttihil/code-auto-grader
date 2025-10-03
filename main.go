@@ -27,8 +27,8 @@ func main() {
 	// Create HTTP server with middlewares
 	mux := http.NewServeMux()
 
-	// Serve static files from public directory
-	fs := http.FileServer(http.Dir("./public"))
+	// Serve static files from web/dist directory (Vite build output)
+	fs := http.FileServer(http.Dir("./web/dist"))
 	mux.Handle("/", fs)
 
 	// API routes
