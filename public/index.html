@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Code Auto-Grader - LLM Learning Platform</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -61,7 +59,7 @@
                     </div>
                 </div>
                 
-                <textarea id="codeEditor"></textarea>
+                <textarea id="codeEditor" class="code-textarea" spellcheck="false"></textarea>
                 
                 <div class="output-section">
                     <h3>Output</h3>
@@ -86,9 +84,6 @@
         <p>Processing...</p>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

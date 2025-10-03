@@ -39,12 +39,13 @@ class CodeExecutionService {
       
       // Execute with Node.js in a restricted way
       // Using timeout and limiting resources
-      const command = `timeout ${this.timeout / 1000}s node --max-old-space-size=128 "${filePath}"`;
+      const nodePath = process.execPath || 'node';
+      const command = `timeout ${this.timeout / 1000}s ${nodePath} --max-old-space-size=128 "${filePath}"`;
       
       const { stdout, stderr } = await execAsync(command, {
         timeout: this.timeout,
         maxBuffer: 1024 * 1024, // 1MB max output
-        env: { NODE_ENV: 'sandbox' }
+        env: { ...process.env, NODE_ENV: 'sandbox' }
       });
       
       return {
@@ -83,11 +84,13 @@ class CodeExecutionService {
     try {
       await fs.writeFile(filePath, code);
       
-      const command = `timeout ${this.timeout / 1000}s python3 -u "${filePath}"`;
+      const pythonPath = 'python3';
+      const command = `timeout ${this.timeout / 1000}s ${pythonPath} -u "${filePath}"`;
       
       const { stdout, stderr } = await execAsync(command, {
         timeout: this.timeout,
         maxBuffer: 1024 * 1024,
+        env: { ...process.env }
       });
       
       return {

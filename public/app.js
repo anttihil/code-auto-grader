@@ -1,22 +1,28 @@
-// Initialize CodeMirror editor
+// Initialize code editor
 let editor;
 let currentExercise = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize CodeMirror
-    editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
-        mode: 'javascript',
-        theme: 'dracula',
-        lineNumbers: true,
-        autoCloseBrackets: true,
-        matchBrackets: true,
-        indentUnit: 2,
-        tabSize: 2,
-        lineWrapping: true
-    });
-
+    // Initialize simple textarea editor
+    editor = document.getElementById('codeEditor');
+    
     // Set initial content
-    editor.setValue('// Write your code here\n');
+    editor.value = '// Write your code here\n';
+
+    // Add tab key support
+    editor.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            
+            // Insert tab at cursor
+            this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
+            
+            // Move cursor after tab
+            this.selectionStart = this.selectionEnd = start + 2;
+        }
+    });
 
     // Event listeners
     document.getElementById('generateBtn').addEventListener('click', generateExercise);
@@ -33,8 +39,16 @@ function showLoading(show) {
 
 function onLanguageChange() {
     const language = document.getElementById('language').value;
-    const mode = language === 'python' ? 'python' : 'javascript';
-    editor.setOption('mode', mode);
+    // Update placeholder based on language
+    if (language === 'python') {
+        if (editor.value === '// Write your code here\n') {
+            editor.value = '# Write your code here\n';
+        }
+    } else {
+        if (editor.value === '# Write your code here\n') {
+            editor.value = '// Write your code here\n';
+        }
+    }
 }
 
 async function generateExercise() {
@@ -59,7 +73,7 @@ async function generateExercise() {
             currentExercise = data.exercise;
             displayExercise(data.exercise);
             if (data.exercise.starterCode) {
-                editor.setValue(data.exercise.starterCode);
+                editor.value = data.exercise.starterCode;
             }
         } else {
             showError('Failed to generate exercise. Please try again.');
@@ -83,7 +97,7 @@ async function loadSampleExercise() {
             currentExercise = data.exercise;
             displayExercise(data.exercise);
             if (data.exercise.starterCode) {
-                editor.setValue(data.exercise.starterCode);
+                editor.value = data.exercise.starterCode;
             }
         } else {
             showError('Failed to load sample exercise.');
@@ -136,7 +150,7 @@ function displayExercise(exercise) {
 }
 
 async function runCode() {
-    const code = editor.getValue();
+    const code = editor.value;
     const language = document.getElementById('language').value;
     const output = document.getElementById('output');
 
@@ -189,7 +203,7 @@ async function submitCode() {
         return;
     }
 
-    const code = editor.getValue();
+    const code = editor.value;
     const language = document.getElementById('language').value;
 
     if (!code.trim()) {
@@ -284,7 +298,7 @@ function displayFeedback(feedback, executionResult) {
 
 function clearEditor() {
     if (confirm('Are you sure you want to clear the editor?')) {
-        editor.setValue('// Write your code here\n');
+        editor.value = '// Write your code here\n';
         document.getElementById('output').textContent = '';
     }
 }
