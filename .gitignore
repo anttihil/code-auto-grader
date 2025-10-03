@@ -2,6 +2,17 @@
 node_modules/
 package-lock.json
 
+# Go dependencies
+vendor/
+
+# Binaries
+code-auto-grader
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
 # Environment variables
 .env
 

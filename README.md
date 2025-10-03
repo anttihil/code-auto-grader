@@ -13,7 +13,7 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
 
 ## Architecture
 
-### Backend (Node.js/Express)
+### Backend (Go)
 - **API Endpoints**:
   - `/api/exercise/generate` - Generate new exercises using Gemini AI
   - `/api/exercise/sample` - Get a sample exercise for testing
@@ -27,7 +27,7 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
 
 ### Frontend (HTML/CSS/JavaScript)
 - Modern, responsive web interface
-- CodeMirror editor with syntax highlighting
+- Built-in code editor with syntax highlighting
 - Real-time code execution and feedback display
 
 ### Security Measures
@@ -40,15 +40,14 @@ LLM-based code learning platform that uses AI to generate coding exercises and p
 
 2. **API Security**:
    - Rate limiting (100 requests per 15 minutes)
-   - Helmet.js for HTTP headers security
+   - Security headers for HTTP protection
    - CORS enabled
    - Input validation
 
 ## Setup Instructions
 
 ### Prerequisites
-- Node.js (v14 or higher)
-- npm
+- Go 1.20 or higher
 - A Gemini API key (get one at https://makersuite.google.com/app/apikey)
 
 ### Installation
@@ -59,9 +58,9 @@ git clone https://github.com/anttihil/code-auto-grader.git
 cd code-auto-grader
 ```
 
-2. Install dependencies:
+2. Install Go dependencies:
 ```bash
-npm install
+go mod download
 ```
 
 3. Create a `.env` file from the example:
@@ -73,19 +72,22 @@ cp .env.example .env
 ```
 GEMINI_API_KEY=your_actual_api_key_here
 PORT=3000
-NODE_ENV=development
 ```
 
 ### Running the Application
 
 Start the server:
 ```bash
-npm start
+# Build the application
+go build -o code-auto-grader
+
+# Run the server
+./code-auto-grader
 ```
 
-For development with auto-reload:
+Or run directly without building:
 ```bash
-npm run dev
+go run main.go
 ```
 
 The application will be available at `http://localhost:3000`
@@ -142,21 +144,22 @@ curl -X POST http://localhost:3000/api/submission/submit \
 
 ```
 code-auto-grader/
-├── src/
-│   ├── server.js              # Main server file
-│   ├── routes/
-│   │   ├── exercise.js        # Exercise generation routes
-│   │   └── submission.js      # Code submission routes
-│   └── services/
-│       ├── gemini.js          # Gemini AI integration
-│       └── codeExecution.js   # Secure code execution
+├── main.go                    # Main server file
+├── handlers/
+│   └── handlers.go            # HTTP handlers for all endpoints
+├── middleware/
+│   └── middleware.go          # Security, CORS, rate limiting middleware
+├── services/
+│   ├── gemini.go              # Gemini AI integration
+│   └── code_execution.go      # Secure code execution
 ├── public/
 │   ├── index.html             # Frontend UI
 │   ├── styles.css             # Styling
 │   └── app.js                 # Frontend JavaScript
 ├── .env.example               # Environment variables template
 ├── .gitignore
-├── package.json
+├── go.mod                     # Go module definition
+├── go.sum                     # Go dependencies checksums
 └── README.md
 ```
 
