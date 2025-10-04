@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from 'solid-js';
+import { createSignal, Show, For } from "solid-js";
 
 interface Exercise {
   title: string;
@@ -26,39 +26,39 @@ interface Feedback {
 }
 
 function App() {
-  const [difficulty, setDifficulty] = createSignal('beginner');
-  const [topic, setTopic] = createSignal('general');
-  const [language, setLanguage] = createSignal('javascript');
-  const [code, setCode] = createSignal('// Write your code here\n');
-  const [output, setOutput] = createSignal('');
+  const [difficulty, setDifficulty] = createSignal("beginner");
+  const [topic, setTopic] = createSignal("general");
+  const [language, setLanguage] = createSignal("javascript");
+  const [code, setCode] = createSignal("// Write your code here\n");
+  const [output, setOutput] = createSignal("");
   const [exercise, setExercise] = createSignal<Exercise | null>(null);
   const [feedback, setFeedback] = createSignal<Feedback | null>(null);
   const [loading, setLoading] = createSignal(false);
-  const [outputClass, setOutputClass] = createSignal('output');
+  const [outputClass, setOutputClass] = createSignal("output");
 
   // Handle language change
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang);
-    if (lang === 'python') {
-      if (code() === '// Write your code here\n') {
-        setCode('# Write your code here\n');
+    if (lang === "python") {
+      if (code() === "// Write your code here\n") {
+        setCode("# Write your code here\n");
       }
     } else {
-      if (code() === '# Write your code here\n') {
-        setCode('// Write your code here\n');
+      if (code() === "# Write your code here\n") {
+        setCode("// Write your code here\n");
       }
     }
   };
 
   // Handle tab key in textarea
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Tab') {
+    if (e.key === "Tab") {
       e.preventDefault();
       const target = e.target as HTMLTextAreaElement;
       const start = target.selectionStart;
       const end = target.selectionEnd;
       const value = code();
-      setCode(value.substring(0, start) + '  ' + value.substring(end));
+      setCode(value.substring(0, start) + "  " + value.substring(end));
       setTimeout(() => {
         target.selectionStart = target.selectionEnd = start + 2;
       }, 0);
@@ -69,7 +69,7 @@ function App() {
   const loadSampleExercise = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/exercise/sample');
+      const response = await fetch("/api/exercise/sample");
       const data = await response.json();
       if (data.success) {
         setExercise(data.exercise);
@@ -77,11 +77,13 @@ function App() {
           setCode(data.exercise.starterCode);
         }
       } else {
-        alert('Failed to load sample exercise.');
+        alert("Failed to load sample exercise.");
       }
     } catch (error) {
-      console.error('Error loading sample:', error);
-      alert('Error connecting to server. Make sure the server is running and try again.');
+      console.error("Error loading sample:", error);
+      alert(
+        "Error connecting to server. Make sure the server is running and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -91,14 +93,14 @@ function App() {
   const generateExercise = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/exercise/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/exercise/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           difficulty: difficulty(),
           topic: topic(),
-          language: language()
-        })
+          language: language(),
+        }),
       });
       const data = await response.json();
       if (data.success) {
@@ -107,11 +109,13 @@ function App() {
           setCode(data.exercise.starterCode);
         }
       } else {
-        alert('Failed to generate exercise. Please try again.');
+        alert("Failed to generate exercise. Please try again.");
       }
     } catch (error) {
-      console.error('Error generating exercise:', error);
-      alert('Error connecting to server. Make sure the server is running and try again.');
+      console.error("Error generating exercise:", error);
+      alert(
+        "Error connecting to server. Make sure the server is running and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -120,40 +124,42 @@ function App() {
   // Run code
   const runCode = async () => {
     if (!code().trim()) {
-      setOutputClass('output error');
-      setOutput('Please write some code first.');
+      setOutputClass("output error");
+      setOutput("Please write some code first.");
       return;
     }
 
     setLoading(true);
-    setOutputClass('output');
-    setOutput('Running code...');
+    setOutputClass("output");
+    setOutput("Running code...");
 
     try {
-      const response = await fetch('/api/submission/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code(), language: language() })
+      const response = await fetch("/api/submission/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code(), language: language() }),
       });
       const data = await response.json();
 
       if (data.success && data.executionResult) {
         const result = data.executionResult;
         if (result.success) {
-          setOutputClass('output success');
-          setOutput(result.output || 'Code executed successfully (no output)');
+          setOutputClass("output success");
+          setOutput(result.output || "Code executed successfully (no output)");
         } else {
-          setOutputClass('output error');
+          setOutputClass("output error");
           setOutput(`Error: ${result.error}`);
         }
       } else {
-        setOutputClass('output error');
-        setOutput('Failed to run code. Please try again.');
+        setOutputClass("output error");
+        setOutput("Failed to run code. Please try again.");
       }
     } catch (error) {
-      console.error('Error running code:', error);
-      setOutputClass('output error');
-      setOutput('Error connecting to server. Make sure the server is running and try again.');
+      console.error("Error running code:", error);
+      setOutputClass("output error");
+      setOutput(
+        "Error connecting to server. Make sure the server is running and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -161,38 +167,42 @@ function App() {
 
   // Submit code for grading
   const submitCode = async () => {
-    if (!exercise()) {
-      alert('Please load an exercise first.');
+    const loadedExercise = exercise();
+    const currentCode = code();
+    if (!loadedExercise) {
+      alert("Please load an exercise first.");
       return;
     }
 
-    if (!code().trim()) {
-      alert('Please write some code first.');
+    if (!currentCode.trim()) {
+      alert("Please write some code first.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const response = await fetch('/api/submission/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/submission/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: code(),
-          exercise: exercise()!.description,
-          language: language()
-        })
+          code: currentCode,
+          exercise: loadedExercise.description,
+          language: language(),
+        }),
       });
       const data = await response.json();
 
       if (data.success) {
         setFeedback(data.feedback);
       } else {
-        alert('Failed to submit code. Please try again.');
+        alert("Failed to submit code. Please try again.");
       }
     } catch (error) {
-      console.error('Error submitting code:', error);
-      alert('Error connecting to server. Make sure the server is running and try again.');
+      console.error("Error submitting code:", error);
+      alert(
+        "Error connecting to server. Make sure the server is running and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -200,9 +210,9 @@ function App() {
 
   // Clear editor
   const clearEditor = () => {
-    if (confirm('Are you sure you want to clear the editor?')) {
-      setCode('// Write your code here\n');
-      setOutput('');
+    if (confirm("Are you sure you want to clear the editor?")) {
+      setCode("// Write your code here\n");
+      setOutput("");
     }
   };
 
@@ -219,7 +229,10 @@ function App() {
           <div class="panel-header">
             <h2>Exercise</h2>
             <div class="exercise-controls">
-              <select value={difficulty()} onInput={(e) => setDifficulty(e.target.value)}>
+              <select
+                value={difficulty()}
+                onInput={(e) => setDifficulty(e.target.value)}
+              >
                 <option value="beginner">Beginner</option>
                 <option value="intermediate">Intermediate</option>
                 <option value="advanced">Advanced</option>
@@ -232,12 +245,19 @@ function App() {
                 <option value="objects">Objects</option>
                 <option value="algorithms">Algorithms</option>
               </select>
-              <select value={language()} onInput={(e) => handleLanguageChange(e.target.value)}>
+              <select
+                value={language()}
+                onInput={(e) => handleLanguageChange(e.target.value)}
+              >
                 <option value="javascript">JavaScript</option>
                 <option value="python">Python</option>
               </select>
-              <button onClick={generateExercise} class="btn btn-primary">Generate New Exercise</button>
-              <button onClick={loadSampleExercise} class="btn btn-secondary">Load Sample</button>
+              <button onClick={generateExercise} class="btn btn-primary">
+                Generate New Exercise
+              </button>
+              <button onClick={loadSampleExercise} class="btn btn-secondary">
+                Load Sample
+              </button>
             </div>
           </div>
 
@@ -246,21 +266,35 @@ function App() {
               when={exercise()}
               fallback={
                 <div class="loading-message">
-                  <p>👋 Welcome! Click "Load Sample" for a demo or "Generate New Exercise" to create a custom problem.</p>
+                  <p>
+                    👋 Welcome! Click "Load Sample" for a demo or "Generate New
+                    Exercise" to create a custom problem.
+                  </p>
                 </div>
               }
             >
-              <div class={`difficulty ${exercise()!.difficulty}`}>{exercise()!.difficulty.toUpperCase()}</div>
+              <div class={`difficulty ${exercise()!.difficulty}`}>
+                {exercise()!.difficulty.toUpperCase()}
+              </div>
               <h3>{exercise()!.title}</h3>
-              <p><strong>Language:</strong> {exercise()!.language}</p>
+              <p>
+                <strong>Language:</strong> {exercise()!.language}
+              </p>
               <p>{exercise()!.description}</p>
-              <Show when={exercise()!.testCases && exercise()!.testCases!.length > 0}>
+              <Show
+                when={
+                  exercise()!.testCases && exercise()!.testCases!.length > 0
+                }
+              >
                 <div class="test-cases">
                   <h4>Test Cases:</h4>
                   <ul>
                     <For each={exercise()!.testCases}>
                       {(tc) => (
-                        <li><code>{tc.input}</code> → <code>{tc.expectedOutput}</code></li>
+                        <li>
+                          <code>{tc.input}</code> →{" "}
+                          <code>{tc.expectedOutput}</code>
+                        </li>
                       )}
                     </For>
                   </ul>
@@ -287,9 +321,15 @@ function App() {
           <div class="panel-header">
             <h2>Code Editor</h2>
             <div class="editor-controls">
-              <button onClick={runCode} class="btn btn-success">▶ Run Code</button>
-              <button onClick={submitCode} class="btn btn-primary">✓ Submit for Grading</button>
-              <button onClick={clearEditor} class="btn btn-secondary">Clear</button>
+              <button onClick={runCode} class="btn btn-success">
+                ▶ Run Code
+              </button>
+              <button onClick={submitCode} class="btn btn-primary">
+                ✓ Submit for Grading
+              </button>
+              <button onClick={clearEditor} class="btn btn-secondary">
+                Clear
+              </button>
             </div>
           </div>
 
@@ -316,23 +356,40 @@ function App() {
             <Show
               when={feedback()}
               fallback={
-                <p class="info-message">Submit your code to receive AI-powered feedback and grading.</p>
+                <p class="info-message">
+                  Submit your code to receive AI-powered feedback and grading.
+                </p>
               }
             >
-              <div class={`score ${feedback()!.score >= 80 ? 'high' : feedback()!.score >= 60 ? 'medium' : 'low'}`}>
+              <div
+                class={`score ${
+                  feedback()!.score >= 80
+                    ? "high"
+                    : feedback()!.score >= 60
+                    ? "medium"
+                    : "low"
+                }`}
+              >
                 Score: {feedback()!.score}/100
               </div>
               <h4>Overall Feedback:</h4>
               <p>{feedback()!.feedback}</p>
-              <Show when={feedback()!.strengths && feedback()!.strengths!.length > 0}>
+              <Show
+                when={
+                  feedback()!.strengths && feedback()!.strengths!.length > 0
+                }
+              >
                 <h4>✓ Strengths:</h4>
                 <ul>
-                  <For each={feedback()!.strengths}>
-                    {(s) => <li>{s}</li>}
-                  </For>
+                  <For each={feedback()!.strengths}>{(s) => <li>{s}</li>}</For>
                 </ul>
               </Show>
-              <Show when={feedback()!.improvements && feedback()!.improvements!.length > 0}>
+              <Show
+                when={
+                  feedback()!.improvements &&
+                  feedback()!.improvements!.length > 0
+                }
+              >
                 <h4>→ Areas for Improvement:</h4>
                 <ul>
                   <For each={feedback()!.improvements}>
