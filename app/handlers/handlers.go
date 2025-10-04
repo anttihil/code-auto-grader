@@ -1,36 +1,23 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/anttihil/code-auto-grader/services"
+	"github.com/labstack/echo/v4"
 )
 
 // HealthCheck returns the health status of the API
-func HealthCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	response := map[string]interface{}{
+func HealthCheck(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":    "ok",
 		"timestamp": time.Now().Format(time.RFC3339),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // GetSampleExercise returns a sample coding exercise
-func GetSampleExercise(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func GetSampleExercise(c echo.Context) error {
 	sampleExercise := map[string]interface{}{
 		"title":       "Sum Two Numbers",
 		"description": "Write a function that takes two numbers as parameters and returns their sum.",
@@ -50,36 +37,25 @@ func GetSampleExercise(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	response := map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":  true,
 		"exercise": sampleExercise,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // GenerateExercise generates a new coding exercise using AI
-func GenerateExercise(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func GenerateExercise(c echo.Context) error {
 	var req struct {
 		Difficulty string `json:"difficulty"`
 		Topic      string `json:"topic"`
 		Language   string `json:"language"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
 		})
-		return
 	}
 
 	// Set defaults
@@ -96,55 +72,38 @@ func GenerateExercise(w http.ResponseWriter, r *http.Request) {
 	gemini := services.NewGeminiService()
 	exercise, err := gemini.GenerateExercise(req.Difficulty, req.Topic, req.Language)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to generate exercise",
 			"message": err.Error(),
 		})
-		return
 	}
 
-	response := map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":  true,
 		"exercise": exercise,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // RunCode executes code without evaluation
-func RunCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func RunCode(c echo.Context) error {
 	var req struct {
 		Code     string `json:"code"`
 		Language string `json:"language"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
 		})
-		return
 	}
 
 	if req.Code == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Code is required",
 		})
-		return
 	}
 
 	if req.Language == "" {
@@ -154,46 +113,32 @@ func RunCode(w http.ResponseWriter, r *http.Request) {
 	executor := services.NewCodeExecutionService()
 	result := executor.ExecuteCode(req.Code, req.Language)
 
-	response := map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":         true,
 		"executionResult": result,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // SubmitCode submits code for AI evaluation
-func SubmitCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func SubmitCode(c echo.Context) error {
 	var req struct {
 		Code     string `json:"code"`
 		Exercise string `json:"exercise"`
 		Language string `json:"language"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
 		})
-		return
 	}
 
 	if req.Code == "" || req.Exercise == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Code and exercise are required",
 		})
-		return
 	}
 
 	if req.Language == "" {
@@ -208,22 +153,16 @@ func SubmitCode(w http.ResponseWriter, r *http.Request) {
 	gemini := services.NewGeminiService()
 	feedback, err := gemini.CheckSubmission(req.Exercise, req.Code, req.Language)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to process submission",
 			"message": err.Error(),
 		})
-		return
 	}
 
-	response := map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":         true,
 		"executionResult": executionResult,
 		"feedback":        feedback,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }

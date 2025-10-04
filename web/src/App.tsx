@@ -1,18 +1,43 @@
 import { createSignal, Show, For } from 'solid-js';
 
+interface Exercise {
+  title: string;
+  description: string;
+  difficulty: string;
+  language: string;
+  starterCode?: string;
+  testCases?: TestCase[];
+  hints?: string[];
+}
+
+interface TestCase {
+  input: string;
+  expectedOutput: string;
+}
+
+interface Feedback {
+  score: number;
+  feedback: string;
+  strengths?: string[];
+  improvements?: string[];
+  codeQuality: string;
+  correctness: string;
+  suggestions?: string;
+}
+
 function App() {
   const [difficulty, setDifficulty] = createSignal('beginner');
   const [topic, setTopic] = createSignal('general');
   const [language, setLanguage] = createSignal('javascript');
   const [code, setCode] = createSignal('// Write your code here\n');
   const [output, setOutput] = createSignal('');
-  const [exercise, setExercise] = createSignal(null);
-  const [feedback, setFeedback] = createSignal(null);
+  const [exercise, setExercise] = createSignal<Exercise | null>(null);
+  const [feedback, setFeedback] = createSignal<Feedback | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [outputClass, setOutputClass] = createSignal('output');
 
   // Handle language change
-  const handleLanguageChange = (lang) => {
+  const handleLanguageChange = (lang: string) => {
     setLanguage(lang);
     if (lang === 'python') {
       if (code() === '// Write your code here\n') {
@@ -26,15 +51,16 @@ function App() {
   };
 
   // Handle tab key in textarea
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      const start = e.target.selectionStart;
-      const end = e.target.selectionEnd;
+      const target = e.target as HTMLTextAreaElement;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
       const value = code();
       setCode(value.substring(0, start) + '  ' + value.substring(end));
       setTimeout(() => {
-        e.target.selectionStart = e.target.selectionEnd = start + 2;
+        target.selectionStart = target.selectionEnd = start + 2;
       }, 0);
     }
   };
@@ -47,7 +73,7 @@ function App() {
       const data = await response.json();
       if (data.success) {
         setExercise(data.exercise);
-        if (data.exercise.starterCode) {
+        if (data.exercise?.starterCode) {
           setCode(data.exercise.starterCode);
         }
       } else {
@@ -77,7 +103,7 @@ function App() {
       const data = await response.json();
       if (data.success) {
         setExercise(data.exercise);
-        if (data.exercise.starterCode) {
+        if (data.exercise?.starterCode) {
           setCode(data.exercise.starterCode);
         }
       } else {
@@ -153,7 +179,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: code(),
-          exercise: exercise().description,
+          exercise: exercise()!.description,
           language: language()
         })
       });
@@ -224,15 +250,15 @@ function App() {
                 </div>
               }
             >
-              <div class={`difficulty ${exercise().difficulty}`}>{exercise().difficulty.toUpperCase()}</div>
-              <h3>{exercise().title}</h3>
-              <p><strong>Language:</strong> {exercise().language}</p>
-              <p>{exercise().description}</p>
-              <Show when={exercise().testCases && exercise().testCases.length > 0}>
+              <div class={`difficulty ${exercise()!.difficulty}`}>{exercise()!.difficulty.toUpperCase()}</div>
+              <h3>{exercise()!.title}</h3>
+              <p><strong>Language:</strong> {exercise()!.language}</p>
+              <p>{exercise()!.description}</p>
+              <Show when={exercise()!.testCases && exercise()!.testCases!.length > 0}>
                 <div class="test-cases">
                   <h4>Test Cases:</h4>
                   <ul>
-                    <For each={exercise().testCases}>
+                    <For each={exercise()!.testCases}>
                       {(tc) => (
                         <li><code>{tc.input}</code> → <code>{tc.expectedOutput}</code></li>
                       )}
@@ -240,12 +266,12 @@ function App() {
                   </ul>
                 </div>
               </Show>
-              <Show when={exercise().hints && exercise().hints.length > 0}>
+              <Show when={exercise()!.hints && exercise()!.hints!.length > 0}>
                 <div class="hints">
                   <details>
                     <summary>💡 Show Hints</summary>
                     <ul>
-                      <For each={exercise().hints}>
+                      <For each={exercise()!.hints}>
                         {(hint) => <li>{hint}</li>}
                       </For>
                     </ul>
@@ -293,34 +319,34 @@ function App() {
                 <p class="info-message">Submit your code to receive AI-powered feedback and grading.</p>
               }
             >
-              <div class={`score ${feedback().score >= 80 ? 'high' : feedback().score >= 60 ? 'medium' : 'low'}`}>
-                Score: {feedback().score}/100
+              <div class={`score ${feedback()!.score >= 80 ? 'high' : feedback()!.score >= 60 ? 'medium' : 'low'}`}>
+                Score: {feedback()!.score}/100
               </div>
               <h4>Overall Feedback:</h4>
-              <p>{feedback().feedback}</p>
-              <Show when={feedback().strengths && feedback().strengths.length > 0}>
+              <p>{feedback()!.feedback}</p>
+              <Show when={feedback()!.strengths && feedback()!.strengths!.length > 0}>
                 <h4>✓ Strengths:</h4>
                 <ul>
-                  <For each={feedback().strengths}>
+                  <For each={feedback()!.strengths}>
                     {(s) => <li>{s}</li>}
                   </For>
                 </ul>
               </Show>
-              <Show when={feedback().improvements && feedback().improvements.length > 0}>
+              <Show when={feedback()!.improvements && feedback()!.improvements!.length > 0}>
                 <h4>→ Areas for Improvement:</h4>
                 <ul>
-                  <For each={feedback().improvements}>
+                  <For each={feedback()!.improvements}>
                     {(i) => <li>{i}</li>}
                   </For>
                 </ul>
               </Show>
               <h4>Code Quality:</h4>
-              <p>{feedback().codeQuality}</p>
+              <p>{feedback()!.codeQuality}</p>
               <h4>Correctness:</h4>
-              <p>{feedback().correctness}</p>
-              <Show when={feedback().suggestions}>
+              <p>{feedback()!.correctness}</p>
+              <Show when={feedback()!.suggestions}>
                 <h4>Suggestions:</h4>
-                <p>{feedback().suggestions}</p>
+                <p>{feedback()!.suggestions}</p>
               </Show>
             </Show>
           </div>
