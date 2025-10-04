@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Go dependencies
+vendor/
+
+# Binaries
+code-auto-grader
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Vite build output
+web/dist/
+
+# Environment variables
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Temporary files
+/tmp/
+*.tmp
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Code execution temporary files
+/tmp/code-executions/
