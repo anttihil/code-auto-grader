@@ -7,14 +7,13 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 // GeminiService handles AI-powered exercise generation and code evaluation
 type GeminiService struct {
 	client *genai.Client
-	model  *genai.GenerativeModel
+	models *genai.Models
 }
 
 // Exercise represents a coding exercise
@@ -49,16 +48,19 @@ func NewGeminiService() *GeminiService {
 	}
 
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	config := &genai.ClientConfig{
+		APIKey: apiKey,
+	}
+	client, err := genai.NewClient(ctx, config)
 	if err != nil {
 		return nil
 	}
 
-	model := client.GenerativeModel("gemini-pro")
+	models := client.Models
 
 	return &GeminiService{
 		client: client,
-		model:  model,
+		models: models,
 	}
 }
 
@@ -91,8 +93,18 @@ Please provide the response in the following JSON format:
 Make the exercise educational and engaging. Include clear instructions and appropriate test cases.`, 
 		difficulty, topic, language, difficulty, language)
 
+	var temperature float32 = 0.7
+	if difficulty == "easy" {
+		temperature = 0.5
+	} else if difficulty == "hard" {
+		temperature = 0.9
+	}
+
 	ctx := context.Background()
-	resp, err := s.model.GenerateContent(ctx, genai.Text(prompt))
+	resp, err := s.models.GenerateContent(ctx, "gemini-2.5", genai.Text(prompt), &genai.GenerateContentConfig{
+		MaxOutputTokens: 1000,
+		Temperature:     &temperature,
+	})
 	if err != nil {
 		return Exercise{}, fmt.Errorf("failed to generate exercise: %w", err)
 	}
@@ -163,7 +175,10 @@ Be constructive, educational, and encouraging in your feedback.`,
 		exercise, language, "```"+language+"\n", submittedCode, "\n```")
 
 	ctx := context.Background()
-	resp, err := s.model.GenerateContent(ctx, genai.Text(prompt))
+
+	resp, err := s.models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
+		MaxOutputTokens: 1000,
+	})
 	if err != nil {
 		return Feedback{}, fmt.Errorf("failed to check submission: %w", err)
 	}
