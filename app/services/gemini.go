@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 
 	"google.golang.org/genai"
 )
@@ -75,72 +74,73 @@ func (s *GeminiService) GenerateExercise(difficulty, topic, language string) (Ex
 - Topic: %s
 - Programming Language: %s
 
-Please provide the response in the following JSON format:
-{
-  "title": "Exercise title",
-  "description": "Detailed description of the problem",
-  "difficulty": "%s",
-  "language": "%s",
-  "starterCode": "Initial code template for the student",
-  "hints": ["hint1", "hint2", "hint3"],
-  "expectedOutput": "Description of expected output or behavior",
-  "testCases": [
-    {"input": "test input 1", "expectedOutput": "expected output 1"},
-    {"input": "test input 2", "expectedOutput": "expected output 2"}
-  ]
-}
+Make the exercise educational and engaging. Include:
+- A clear title and detailed description of the problem
+- Starter code template for the student
+- 3-5 helpful hints
+- Description of expected output or behavior
+- At least 2 test cases with input and expected output
 
-Make the exercise educational and engaging. Include clear instructions and appropriate test cases.`, 
-		difficulty, topic, language, difficulty, language)
+Be creative and ensure the exercise is appropriate for the specified difficulty level.`,
+		difficulty, topic, language)
 
-	var temperature float32 = 0.7
-	if difficulty == "easy" {
-		temperature = 0.5
-	} else if difficulty == "hard" {
-		temperature = 0.9
+	var temperature float32
+
+	switch difficulty {
+		case "easy":
+			temperature = 0.5
+		case "hard":
+			temperature = 0.9
+		default:
+			temperature = 0.7
 	}
 
 	ctx := context.Background()
+
+	// Define response schema for structured output
+	responseSchema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"title":          {Type: genai.TypeString},
+			"description":    {Type: genai.TypeString},
+			"difficulty":     {Type: genai.TypeString},
+			"language":       {Type: genai.TypeString},
+			"starterCode":    {Type: genai.TypeString},
+			"hints":          {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},
+			"expectedOutput": {Type: genai.TypeString},
+			"testCases": {
+				Type: genai.TypeArray,
+				Items: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"input":          {Type: genai.TypeString},
+						"expectedOutput": {Type: genai.TypeString},
+					},
+					Required: []string{"input", "expectedOutput"},
+				},
+			},
+		},
+		Required: []string{"title", "description", "difficulty", "language", "starterCode", "hints", "expectedOutput", "testCases"},
+	}
+
 	resp, err := s.models.GenerateContent(ctx, "gemini-2.5", genai.Text(prompt), &genai.GenerateContentConfig{
-		MaxOutputTokens: 1000,
-		Temperature:     &temperature,
+		MaxOutputTokens:  1000,
+		Temperature:      &temperature,
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   responseSchema,
 	})
 	if err != nil {
 		return Exercise{}, fmt.Errorf("failed to generate exercise: %w", err)
 	}
 
-	// Extract text from response
-	var text string
-	for _, cand := range resp.Candidates {
-		if cand.Content != nil {
-			for _, part := range cand.Content.Parts {
-				text += fmt.Sprintf("%v", part)
-			}
-		}
-	}
-
-	// Try to extract JSON from the response
-	re := regexp.MustCompile(`\{[\s\S]*\}`)
-	jsonMatch := re.FindString(text)
-
+	// Extract and parse JSON from response
+	text := resp.Text()
 	var exercise Exercise
-	if jsonMatch != "" {
-		if err := json.Unmarshal([]byte(jsonMatch), &exercise); err == nil {
-			return exercise, nil
-		}
+	if err := json.Unmarshal([]byte(text), &exercise); err != nil {
+		return Exercise{}, fmt.Errorf("failed to parse exercise JSON: %w", err)
 	}
 
-	// Fallback if JSON parsing fails
-	return Exercise{
-		Title:          "Generated Exercise",
-		Description:    text,
-		Difficulty:     difficulty,
-		Language:       language,
-		StarterCode:    fmt.Sprintf("// Write your %s code here\n", language),
-		Hints:          []string{},
-		ExpectedOutput: "See description for details",
-		TestCases:      []map[string]string{},
-	}, nil
+	return exercise, nil
 }
 
 // CheckSubmission checks submitted code using Gemini AI
@@ -159,60 +159,52 @@ PROGRAMMING LANGUAGE: %s
 SUBMITTED CODE:
 %s%s%s
 
-Please provide feedback in the following JSON format:
-{
-  "passed": true/false,
-  "score": 0-100,
-  "feedback": "Overall feedback on the submission",
-  "strengths": ["strength1", "strength2"],
-  "improvements": ["improvement1", "improvement2"],
-  "correctness": "Assessment of correctness",
-  "codeQuality": "Assessment of code quality and style",
-  "suggestions": "Specific suggestions for improvement"
-}
+Provide a thorough review that includes:
+- Whether the code passes the exercise requirements (passed: true/false)
+- A numerical score from 0-100
+- Overall feedback on the submission
+- List of strengths in the code
+- List of areas for improvement
+- Assessment of correctness
+- Assessment of code quality and style
+- Specific suggestions for improvement
 
 Be constructive, educational, and encouraging in your feedback.`,
 		exercise, language, "```"+language+"\n", submittedCode, "\n```")
 
 	ctx := context.Background()
 
+	// Define response schema for structured output
+	responseSchema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"passed":       {Type: genai.TypeBoolean},
+			"score":        {Type: genai.TypeInteger},
+			"feedback":     {Type: genai.TypeString},
+			"strengths":    {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},
+			"improvements": {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},
+			"correctness":  {Type: genai.TypeString},
+			"codeQuality":  {Type: genai.TypeString},
+			"suggestions":  {Type: genai.TypeString},
+		},
+		Required: []string{"passed", "score", "feedback", "strengths", "improvements", "correctness", "codeQuality", "suggestions"},
+	}
+
 	resp, err := s.models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
-		MaxOutputTokens: 1000,
+		MaxOutputTokens:  1000,
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   responseSchema,
 	})
 	if err != nil {
 		return Feedback{}, fmt.Errorf("failed to check submission: %w", err)
 	}
 
-	// Extract text from response
-	var text string
-	for _, cand := range resp.Candidates {
-		if cand.Content != nil {
-			for _, part := range cand.Content.Parts {
-				text += fmt.Sprintf("%v", part)
-			}
-		}
-	}
-
-	// Try to extract JSON from the response
-	re := regexp.MustCompile(`\{[\s\S]*\}`)
-	jsonMatch := re.FindString(text)
-
+	// Extract and parse JSON from response
+	text := resp.Text()
 	var feedback Feedback
-	if jsonMatch != "" {
-		if err := json.Unmarshal([]byte(jsonMatch), &feedback); err == nil {
-			return feedback, nil
-		}
+	if err := json.Unmarshal([]byte(text), &feedback); err != nil {
+		return Feedback{}, fmt.Errorf("failed to parse feedback JSON: %w", err)
 	}
 
-	// Fallback if JSON parsing fails
-	return Feedback{
-		Passed:       false,
-		Score:        50,
-		Feedback:     text,
-		Strengths:    []string{},
-		Improvements: []string{},
-		Correctness:  "Unable to determine",
-		CodeQuality:  "Unable to determine",
-		Suggestions:  "Please review the feedback above",
-	}, nil
+	return feedback, nil
 }
