@@ -38,8 +38,9 @@ npm run typecheck      # TypeScript type checking
 
 **Full Development Setup:**
 1. Set up backend: `cd app && cp .env.example .env` (add GEMINI_API_KEY)
-2. Run backend: `cd app && go run main.go`
-3. Run frontend: `cd web && npm run dev` (in separate terminal)
+2. Build Docker images: `cd app && docker build -f docker/javascript.Dockerfile -t code-grader-javascript . && docker build -f docker/python.Dockerfile -t code-grader-python .`
+3. Run backend: `cd app && go run main.go` (builds images automatically if not present)
+4. Run frontend: `cd web && npm run dev` (in separate terminal)
 
 ## Key API Endpoints
 
@@ -50,11 +51,14 @@ npm run typecheck      # TypeScript type checking
 
 ## Code Execution System
 
-The backend securely executes JavaScript (Node.js) and Python code:
+The backend securely executes JavaScript (Node.js) and Python code in Docker containers:
+- Isolated containers with no network access
+- Read-only filesystem
 - 5-second timeout limits
-- Memory constraints (128MB for Node.js)
-- Blocks dangerous patterns (fs, child_process, exec, etc.)
-- Runs in temporary files with cleanup
+- Memory limit: 128MB
+- CPU limit: 0.5 cores
+- Process limit: 50 PIDs
+- No capabilities, privilege escalation prevented
 
 ## File Structure
 
@@ -71,10 +75,20 @@ The backend securely executes JavaScript (Node.js) and Python code:
 - Go 1.20+ (project uses 1.24.7)
 - Node.js and npm
 - Gemini API key (add to `app/.env`)
+- **Docker** (required for code execution)
+
+**Docker Setup:**
+```bash
+# Images are built automatically on first run
+# Or build manually:
+cd app
+docker build -f docker/javascript.Dockerfile -t code-grader-javascript .
+docker build -f docker/python.Dockerfile -t code-grader-python .
+```
 
 **Security Features:**
 - Rate limiting (100 requests per 15 minutes)
-- Code execution sandboxing with pattern blocking
+- Docker container isolation (network disabled, read-only filesystem, resource limits)
 - Security headers and CORS protection
 
 ## Production Deployment
