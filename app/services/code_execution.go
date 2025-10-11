@@ -30,7 +30,7 @@ type ExecutionResult struct {
 }
 
 // NewCodeExecutionService creates a new code execution service
-func NewCodeExecutionService() *CodeExecutionService {
+func NewCodeExecutionService() (*CodeExecutionService, error) {
 	service := &CodeExecutionService{
 		tempDir:       "/tmp/code-executions",
 		timeout:       5 * time.Second,
@@ -38,8 +38,10 @@ func NewCodeExecutionService() *CodeExecutionService {
 		pyDockerImage: "code-grader-python",
 	}
 
-	service.initializeDocker()
-	return service
+	if err := service.initializeDocker(); err != nil {
+		return nil, fmt.Errorf("failed to initialize Docker environment: %w", err)
+	}
+	return service, nil
 }
 
 // ExecuteCode executes code based on the language
@@ -68,18 +70,19 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 }
 
 // initializeDocker builds Docker images for code execution
-func (s *CodeExecutionService) initializeDocker() {
+func (s *CodeExecutionService) initializeDocker() error {
+	fmt.Println("Initializing Docker execution environment...")
+
 	if err := s.buildDockerImage("javascript", s.jsDockerImage); err != nil {
-		fmt.Printf("Failed to build JavaScript Docker image: %v\n", err)
-		return
+		return fmt.Errorf("failed to build JavaScript Docker image: %w", err)
 	}
 
 	if err := s.buildDockerImage("python", s.pyDockerImage); err != nil {
-		fmt.Printf("Failed to build Python Docker image: %v\n", err)
-		return
+		return fmt.Errorf("failed to build Python Docker image: %w", err)
 	}
 
 	fmt.Println("Docker execution environment ready")
+	return nil
 }
 
 // buildDockerImage builds a Docker image from the Dockerfile
@@ -90,20 +93,30 @@ func (s *CodeExecutionService) buildDockerImage(language, imageName string) erro
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", "build", "-f", dockerfilePath, "-t", imageName, ".")
-	cmd.Dir = filepath.Join(".", "app")
 
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker build failed: %v - %s", err, stderr.String())
+		return fmt.Errorf("docker build failed: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
 
+	fmt.Printf("Successfully built Docker image: %s\n", imageName)
 	return nil
 }
 
 // executeInDocker executes code in a Docker container
 func (s *CodeExecutionService) executeInDocker(code, image, filename string) ExecutionResult {
+	// Verify Docker image exists
+	if err := s.verifyDockerImage(image); err != nil {
+		return ExecutionResult{
+			Success:       false,
+			Error:         fmt.Sprintf("Docker image not available: %v", err),
+			ExecutionTime: "error",
+		}
+	}
+
 	filePath := filepath.Join(s.tempDir, generateRandomID()+"_"+filename)
 
 	if err := os.MkdirAll(s.tempDir, 0755); err != nil {
@@ -163,6 +176,19 @@ func (s *CodeExecutionService) executeInDocker(code, image, filename string) Exe
 		Output:        string(output),
 		ExecutionTime: "completed",
 	}
+}
+
+// verifyDockerImage checks if a Docker image exists locally
+func (s *CodeExecutionService) verifyDockerImage(imageName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("image '%s' not found - please ensure Docker images are built", imageName)
+	}
+
+	return nil
 }
 
 // generateRandomID generates a random hex ID

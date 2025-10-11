@@ -123,8 +123,8 @@ Be creative and ensure the exercise is appropriate for the specified difficulty 
 		Required: []string{"title", "description", "difficulty", "language", "starterCode", "hints", "expectedOutput", "testCases"},
 	}
 
-	resp, err := s.models.GenerateContent(ctx, "gemini-2.5", genai.Text(prompt), &genai.GenerateContentConfig{
-		MaxOutputTokens:  1000,
+	resp, err := s.models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
+		MaxOutputTokens:  20000,
 		Temperature:      &temperature,
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   responseSchema,
@@ -137,7 +137,7 @@ Be creative and ensure the exercise is appropriate for the specified difficulty 
 	text := resp.Text()
 	var exercise Exercise
 	if err := json.Unmarshal([]byte(text), &exercise); err != nil {
-		return Exercise{}, fmt.Errorf("failed to parse exercise JSON: %w", err)
+		return Exercise{}, fmt.Errorf("failed to parse exercise JSON: %w. %s", err, text)
 	}
 
 	return exercise, nil

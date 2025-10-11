@@ -109,6 +109,8 @@ function App() {
           setCode(data.exercise.starterCode);
         }
       } else {
+        console.error("Generation error:", data.error);
+        console.error("Generation details:", data.message);
         alert("Failed to generate exercise. Please try again.");
       }
     } catch (error) {

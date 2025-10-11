@@ -110,7 +110,15 @@ func RunCode(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	executor := services.NewCodeExecutionService()
+	executor, err := services.NewCodeExecutionService()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Code execution service unavailable",
+			"message": err.Error(),
+		})
+	}
+
 	result := executor.ExecuteCode(req.Code, req.Language)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
@@ -146,7 +154,15 @@ func SubmitCode(c echo.Context) error {
 	}
 
 	// Execute the code
-	executor := services.NewCodeExecutionService()
+	executor, err := services.NewCodeExecutionService()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Code execution service unavailable",
+			"message": err.Error(),
+		})
+	}
+
 	executionResult := executor.ExecuteCode(req.Code, req.Language)
 
 	// Get AI feedback
