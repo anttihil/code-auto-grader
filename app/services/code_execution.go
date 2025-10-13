@@ -33,6 +33,7 @@ type CodeExecutionService struct {
 	pyDockerImage   string
 	rustDockerImage string
 	executionSem    chan struct{} // Semaphore for concurrency control
+	imagesVerified  bool          // Track if images were verified at startup
 }
 
 // ExecutionResult represents the result of code execution
@@ -70,7 +71,7 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 
 	service := &CodeExecutionService{
 		tempDir:         filepath.Join(homeDir, ".code-grader", "executions"),
-		timeout:         5 * time.Second,
+		timeout:         10 * time.Second, // Increased from 5s to handle concurrent load
 		rustTimeout:     30 * time.Second,
 		queueTimeout:    queueTimeout,
 		maxConcurrent:   maxConcurrent,
@@ -78,6 +79,7 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 		pyDockerImage:   "code-grader-python",
 		rustDockerImage: "code-grader-rust",
 		executionSem:    make(chan struct{}, maxConcurrent),
+		imagesVerified:  false,
 	}
 
 	log.Printf("Code execution service configured: maxConcurrent=%d, queueTimeout=%s", maxConcurrent, queueTimeout)
@@ -85,6 +87,10 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	if err := service.initializeDocker(); err != nil {
 		return nil, fmt.Errorf("failed to initialize Docker environment: %w", err)
 	}
+
+	// Mark images as verified after successful initialization
+	service.imagesVerified = true
+
 	return service, nil
 }
 
@@ -200,17 +206,29 @@ func (s *CodeExecutionService) buildRustDockerImage() error {
 
 // executeInDocker executes code in a Docker container
 func (s *CodeExecutionService) executeInDocker(code, image, filename string) ExecutionResult {
-	// Verify Docker image exists
-	if err := s.verifyDockerImage(image); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Docker image not available: %v", err),
-			ExecutionTime: "error",
+	overallStart := time.Now()
+
+	// Skip image verification if already verified at startup (optimization)
+	var verifyDuration time.Duration
+	if !s.imagesVerified {
+		verifyStart := time.Now()
+		if err := s.verifyDockerImage(image); err != nil {
+			return ExecutionResult{
+				Success:       false,
+				Error:         fmt.Sprintf("Docker image not available: %v", err),
+				ExecutionTime: "error",
+			}
 		}
+		verifyDuration = time.Since(verifyStart)
+		log.Printf("[TIMING] Docker image verify: %v", verifyDuration)
+	} else {
+		// Images verified at startup, skip per-request verification
+		verifyDuration = 0
 	}
 
 	filePath := filepath.Join(s.tempDir, generateRandomID()+"_"+filename)
 
+	mkdirStart := time.Now()
 	if err := os.MkdirAll(s.tempDir, 0755); err != nil {
 		return ExecutionResult{
 			Success:       false,
@@ -218,7 +236,10 @@ func (s *CodeExecutionService) executeInDocker(code, image, filename string) Exe
 			ExecutionTime: "error",
 		}
 	}
+	mkdirDuration := time.Since(mkdirStart)
+	log.Printf("[TIMING] MkdirAll: %v", mkdirDuration)
 
+	writeStart := time.Now()
 	if err := os.WriteFile(filePath, []byte(code), 0644); err != nil {
 		return ExecutionResult{
 			Success:       false,
@@ -226,11 +247,14 @@ func (s *CodeExecutionService) executeInDocker(code, image, filename string) Exe
 			ExecutionTime: "error",
 		}
 	}
+	writeDuration := time.Since(writeStart)
+	log.Printf("[TIMING] Write file: %v", writeDuration)
 	defer os.Remove(filePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
+	dockerStart := time.Now()
 	cmd := exec.CommandContext(ctx, "docker", "run",
 		"--rm",
 		"--network", "none",
@@ -246,6 +270,12 @@ func (s *CodeExecutionService) executeInDocker(code, image, filename string) Exe
 	)
 
 	output, err := cmd.CombinedOutput()
+	dockerDuration := time.Since(dockerStart)
+	overallDuration := time.Since(overallStart)
+
+	log.Printf("[TIMING] Docker execution: %v", dockerDuration)
+	log.Printf("[TIMING] Total execution: %v (verify=%v, mkdir=%v, write=%v, docker=%v)",
+		overallDuration, verifyDuration, mkdirDuration, writeDuration, dockerDuration)
 
 	if ctx.Err() == context.DeadlineExceeded {
 		return ExecutionResult{
