@@ -6,6 +6,7 @@ import (
 
 	"github.com/anttihil/code-auto-grader/handlers"
 	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
+	"github.com/anttihil/code-auto-grader/services"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -16,6 +17,23 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
+
+	// Initialize services
+	log.Println("Initializing services...")
+
+	codeExecutor, err := services.NewCodeExecutionService()
+	if err != nil {
+		log.Fatalf("Failed to initialize code execution service: %v", err)
+	}
+	log.Println("Code execution service initialized successfully")
+
+	geminiService := services.NewGeminiService()
+	log.Println("Gemini service initialized")
+
+	// Create handlers with injected dependencies
+	submissionHandler := handlers.NewSubmissionHandler(codeExecutor)
+	exerciseHandler := handlers.NewExerciseHandler(geminiService)
+	log.Println("Handlers initialized with dependencies")
 
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
@@ -38,10 +56,10 @@ func main() {
 
 	// API routes
 	e.GET("/api/health", handlers.HealthCheck)
-	e.GET("/api/exercise/sample", handlers.GetSampleExercise)
-	e.POST("/api/exercise/generate", handlers.GenerateExercise)
-	e.POST("/api/submission/run", handlers.RunCode)
-	e.POST("/api/submission/submit", handlers.SubmitCode)
+	e.GET("/api/exercise/sample", exerciseHandler.GetSampleExercise)
+	e.POST("/api/exercise/generate", exerciseHandler.GenerateExercise)
+	e.POST("/api/submission/run", submissionHandler.RunCode)
+	e.POST("/api/submission/submit", submissionHandler.SubmitCode)
 
 	// Start server
 	log.Printf("Server is running on port %s\n", port)

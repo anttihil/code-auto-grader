@@ -8,6 +8,36 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// SubmissionHandler handles code execution and submission endpoints
+type SubmissionHandler struct {
+	codeExecutor *services.CodeExecutionService
+}
+
+// NewSubmissionHandler creates a new submission handler with dependencies
+func NewSubmissionHandler(executor *services.CodeExecutionService) *SubmissionHandler {
+	if executor == nil {
+		panic("code executor is required")
+	}
+	return &SubmissionHandler{
+		codeExecutor: executor,
+	}
+}
+
+// ExerciseHandler handles exercise generation endpoints
+type ExerciseHandler struct {
+	gemini *services.GeminiService
+}
+
+// NewExerciseHandler creates a new exercise handler with dependencies
+func NewExerciseHandler(gemini *services.GeminiService) *ExerciseHandler {
+	if gemini == nil {
+		panic("gemini service is required")
+	}
+	return &ExerciseHandler{
+		gemini: gemini,
+	}
+}
+
 // HealthCheck returns the health status of the API
 func HealthCheck(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
@@ -17,7 +47,7 @@ func HealthCheck(c echo.Context) error {
 }
 
 // GetSampleExercise returns a sample coding exercise
-func GetSampleExercise(c echo.Context) error {
+func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 	sampleExercise := map[string]interface{}{
 		"title":       "Sum Two Numbers",
 		"description": "Write a function that takes two numbers as parameters and returns their sum.",
@@ -44,7 +74,7 @@ func GetSampleExercise(c echo.Context) error {
 }
 
 // GenerateExercise generates a new coding exercise using AI
-func GenerateExercise(c echo.Context) error {
+func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	var req struct {
 		Difficulty string `json:"difficulty"`
 		Topic      string `json:"topic"`
@@ -69,8 +99,7 @@ func GenerateExercise(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	gemini := services.NewGeminiService()
-	exercise, err := gemini.GenerateExercise(req.Difficulty, req.Topic, req.Language)
+	exercise, err := h.gemini.GenerateExercise(req.Difficulty, req.Topic, req.Language)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
@@ -86,7 +115,7 @@ func GenerateExercise(c echo.Context) error {
 }
 
 // RunCode executes code without evaluation
-func RunCode(c echo.Context) error {
+func (h *SubmissionHandler) RunCode(c echo.Context) error {
 	var req struct {
 		Code     string `json:"code"`
 		Language string `json:"language"`
@@ -110,25 +139,26 @@ func RunCode(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	executor, err := services.NewCodeExecutionService()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "Code execution service unavailable",
-			"message": err.Error(),
+	result := h.codeExecutor.ExecuteCode(req.Code, req.Language)
+
+	// Check if execution timed out due to queue capacity
+	if !result.Success && result.ExecutionTime == "timeout" &&
+		(result.Error == "Server is at maximum capacity, please try again in a few seconds") {
+		c.Response().Header().Set("Retry-After", "5")
+		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
+			"success":         false,
+			"executionResult": result,
 		})
 	}
 
-	result := executor.ExecuteCode(req.Code, req.Language)
-
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":         true,
+		"success":         result.Success,
 		"executionResult": result,
 	})
 }
 
 // SubmitCode submits code for AI evaluation
-func SubmitCode(c echo.Context) error {
+func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	var req struct {
 		Code     string `json:"code"`
 		Exercise string `json:"exercise"`
@@ -154,16 +184,17 @@ func SubmitCode(c echo.Context) error {
 	}
 
 	// Execute the code
-	executor, err := services.NewCodeExecutionService()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "Code execution service unavailable",
-			"message": err.Error(),
+	executionResult := h.codeExecutor.ExecuteCode(req.Code, req.Language)
+
+	// Check if execution timed out due to queue capacity
+	if !executionResult.Success && executionResult.ExecutionTime == "timeout" &&
+		(executionResult.Error == "Server is at maximum capacity, please try again in a few seconds") {
+		c.Response().Header().Set("Retry-After", "5")
+		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
+			"success":         false,
+			"executionResult": executionResult,
 		})
 	}
-
-	executionResult := executor.ExecuteCode(req.Code, req.Language)
 
 	// Get AI feedback
 	gemini := services.NewGeminiService()
@@ -177,7 +208,7 @@ func SubmitCode(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":         true,
+		"success":         executionResult.Success,
 		"executionResult": executionResult,
 		"feedback":        feedback,
 	})

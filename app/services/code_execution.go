@@ -6,11 +6,20 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	// DefaultMaxConcurrent is the default maximum number of concurrent executions
+	DefaultMaxConcurrent = 15
+	// DefaultQueueTimeout is the default timeout for waiting in queue
+	DefaultQueueTimeout = 10 * time.Second
 )
 
 // CodeExecutionService handles secure code execution in Docker containers
@@ -18,9 +27,12 @@ type CodeExecutionService struct {
 	tempDir         string
 	timeout         time.Duration
 	rustTimeout     time.Duration
+	queueTimeout    time.Duration
+	maxConcurrent   int
 	jsDockerImage   string
 	pyDockerImage   string
 	rustDockerImage string
+	executionSem    chan struct{} // Semaphore for concurrency control
 }
 
 // ExecutionResult represents the result of code execution
@@ -38,14 +50,37 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 		homeDir = "/tmp"
 	}
 
+	// Get max concurrent from environment or use default
+	maxConcurrent := DefaultMaxConcurrent
+	if envMax := os.Getenv("MAX_CONCURRENT_EXECUTIONS"); envMax != "" {
+		if val, err := strconv.Atoi(envMax); err == nil && val > 0 {
+			maxConcurrent = val
+			log.Printf("Using MAX_CONCURRENT_EXECUTIONS=%d from environment", val)
+		}
+	}
+
+	// Get queue timeout from environment or use default
+	queueTimeout := DefaultQueueTimeout
+	if envTimeout := os.Getenv("EXECUTION_QUEUE_TIMEOUT"); envTimeout != "" {
+		if duration, err := time.ParseDuration(envTimeout); err == nil {
+			queueTimeout = duration
+			log.Printf("Using EXECUTION_QUEUE_TIMEOUT=%s from environment", duration)
+		}
+	}
+
 	service := &CodeExecutionService{
 		tempDir:         filepath.Join(homeDir, ".code-grader", "executions"),
 		timeout:         5 * time.Second,
 		rustTimeout:     30 * time.Second,
+		queueTimeout:    queueTimeout,
+		maxConcurrent:   maxConcurrent,
 		jsDockerImage:   "code-grader-javascript",
 		pyDockerImage:   "code-grader-python",
 		rustDockerImage: "code-grader-rust",
+		executionSem:    make(chan struct{}, maxConcurrent),
 	}
+
+	log.Printf("Code execution service configured: maxConcurrent=%d, queueTimeout=%s", maxConcurrent, queueTimeout)
 
 	if err := service.initializeDocker(); err != nil {
 		return nil, fmt.Errorf("failed to initialize Docker environment: %w", err)
@@ -60,6 +95,26 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 			Success:       false,
 			Error:         "No code provided",
 			ExecutionTime: "error",
+		}
+	}
+
+	// Acquire semaphore permit (blocks if at max concurrency)
+	select {
+	case s.executionSem <- struct{}{}:
+		// Successfully acquired permit
+		defer func() {
+			<-s.executionSem // Release permit when done
+			log.Printf("Execution permit released (%d/%d in use)", len(s.executionSem), s.maxConcurrent)
+		}()
+		log.Printf("Execution permit acquired (%d/%d in use)", len(s.executionSem), s.maxConcurrent)
+
+	case <-time.After(s.queueTimeout):
+		// Timeout waiting for permit
+		log.Printf("Execution queue timeout: %d/%d permits in use", s.maxConcurrent, s.maxConcurrent)
+		return ExecutionResult{
+			Success:       false,
+			Error:         "Server is at maximum capacity, please try again in a few seconds",
+			ExecutionTime: "timeout",
 		}
 	}
 
