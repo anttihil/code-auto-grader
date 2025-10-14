@@ -25,6 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize code execution service: %v", err)
 	}
+	defer codeExecutor.Cleanup() // Clean up container pools on shutdown
 	log.Println("Code execution service initialized successfully")
 
 	geminiService := services.NewGeminiService()
@@ -60,6 +61,7 @@ func main() {
 	e.POST("/api/exercise/generate", exerciseHandler.GenerateExercise)
 	e.POST("/api/submission/run", submissionHandler.RunCode)
 	e.POST("/api/submission/submit", submissionHandler.SubmitCode)
+	e.GET("/api/pool/status", submissionHandler.GetPoolStatus)
 
 	// Start server
 	log.Printf("Server is running on port %s\n", port)

@@ -213,3 +213,13 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		"feedback":        feedback,
 	})
 }
+
+// GetPoolStatus returns the status of container pools
+func (h *SubmissionHandler) GetPoolStatus(c echo.Context) error {
+	status := h.codeExecutor.GetPoolStatus()
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"pools":   status,
+	})
+}
