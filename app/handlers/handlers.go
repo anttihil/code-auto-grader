@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -165,6 +166,8 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 
 // SubmitCode submits code for AI evaluation
 func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
+	log.Println("SubmitCode endpoint called")
+
 	var req struct {
 		Code     string `json:"code"`
 		Exercise string `json:"exercise"`
@@ -172,6 +175,7 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
+		log.Printf("ERROR: Failed to bind request body: %v", err)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
@@ -179,6 +183,7 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	if req.Code == "" || req.Exercise == "" {
+		log.Println("ERROR: Missing required fields (code or exercise)")
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Code and exercise are required",
@@ -189,8 +194,13 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
+	log.Printf("Submitting code for evaluation - Language: %s, Code length: %d, Exercise length: %d",
+		req.Language, len(req.Code), len(req.Exercise))
+
 	// Execute the code
+	log.Println("Executing code...")
 	executionResult := h.codeExecutor.ExecuteCode(req.Code, req.Language)
+	log.Printf("Code execution completed - Success: %v", executionResult.Success)
 
 	// Check if execution timed out due to queue capacity
 	if !executionResult.Success && executionResult.ExecutionTime == "timeout" &&
@@ -203,8 +213,10 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	// Get AI feedback
+	log.Println("Requesting AI feedback from Gemini...")
 	feedback, err := h.gemini.CheckSubmission(req.Exercise, req.Code, req.Language)
 	if err != nil {
+		log.Printf("ERROR: Failed to get AI feedback: %v", err)
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to process submission",
@@ -212,6 +224,7 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		})
 	}
 
+	log.Println("SubmitCode completed successfully, returning response")
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":         executionResult.Success,
 		"executionResult": executionResult,
