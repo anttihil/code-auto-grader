@@ -12,15 +12,20 @@ import (
 // SubmissionHandler handles code execution and submission endpoints
 type SubmissionHandler struct {
 	codeExecutor *executor.CodeExecutionService
+	gemini       *services.GeminiService
 }
 
 // NewSubmissionHandler creates a new submission handler with dependencies
-func NewSubmissionHandler(exec *executor.CodeExecutionService) *SubmissionHandler {
+func NewSubmissionHandler(exec *executor.CodeExecutionService, gemini *services.GeminiService) *SubmissionHandler {
 	if exec == nil {
 		panic("code executor is required")
 	}
+	if gemini == nil {
+		panic("gemini service is required")
+	}
 	return &SubmissionHandler{
 		codeExecutor: exec,
+		gemini:       gemini,
 	}
 }
 
@@ -198,8 +203,7 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	// Get AI feedback
-	gemini := services.NewGeminiService()
-	feedback, err := gemini.CheckSubmission(req.Exercise, req.Code, req.Language)
+	feedback, err := h.gemini.CheckSubmission(req.Exercise, req.Code, req.Language)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,

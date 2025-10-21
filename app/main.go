@@ -33,7 +33,7 @@ func main() {
 	log.Println("Gemini service initialized")
 
 	// Create handlers with injected dependencies
-	submissionHandler := handlers.NewSubmissionHandler(codeExecutor)
+	submissionHandler := handlers.NewSubmissionHandler(codeExecutor, geminiService)
 	exerciseHandler := handlers.NewExerciseHandler(geminiService)
 	log.Println("Handlers initialized with dependencies")
 
