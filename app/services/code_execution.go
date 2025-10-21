@@ -26,21 +26,34 @@ const (
 	MaxContainerAge           = 1 * time.Hour
 )
 
+// LanguageConfig defines all language-specific configuration
+type LanguageConfig struct {
+	Name              string        // e.g., "javascript", "python", "rust"
+	FileExtension     string        // e.g., ".js", ".py", ".rs"
+	DockerImage       string        // Docker image name
+	DockerfilePath    string        // Path to Dockerfile
+	ImageBuildTimeout time.Duration // Timeout for building Docker image
+	ExecutionTimeout  time.Duration // Timeout for code execution
+	MemoryMB          int           // Memory limit in MB
+	CPUs              string        // CPU limit (e.g., "0.5", "1.0")
+	TmpfsSize         string        // Tmpfs size (e.g., "8m", "64m")
+	PIDsLimit         int           // Process limit
+	Interpreter       string        // Interpreter command (e.g., "node", "python3", "")
+	RequiresCompile   bool          // Whether code needs compilation
+	Compiler          string        // Compiler command (e.g., "rustc")
+	HealthCheckCmd    []string      // Command for health check
+	PoolSize          int           // Container pool size
+}
+
 // CodeExecutionService handles secure code execution in Docker containers
 type CodeExecutionService struct {
 	tempDir          string
-	timeout          time.Duration
-	rustTimeout      time.Duration
 	queueTimeout     time.Duration
 	maxConcurrent    int
-	jsDockerImage    string
-	pyDockerImage    string
-	rustDockerImage  string
 	executionSem     chan struct{} // Semaphore for concurrency control
 	imagesVerified   bool          // Track if images were verified at startup
-	jsPool           *ContainerPool
-	pyPool           *ContainerPool
-	rustPool         *ContainerPool
+	languageConfigs  map[string]*LanguageConfig
+	pools            map[string]*ContainerPool
 	activeExecutions sync.WaitGroup // Track in-flight executions for graceful shutdown
 	shutdownSignal   chan struct{}  // Signal to stop accepting new requests
 }
@@ -66,10 +79,7 @@ type Container struct {
 // ContainerPool manages a pool of containers for a specific language
 type ContainerPool struct {
 	language   string
-	image      string
-	poolSize   int
-	memoryMB   int
-	cpus       string
+	config     *LanguageConfig
 	containers []*Container
 	available  chan int // Indices of available containers
 	mutex      sync.RWMutex
@@ -108,47 +118,26 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 		}
 	}
 
-	// Get pool sizes from environment or use defaults
-	jsPoolSize := 5
-	if envSize := os.Getenv("JS_POOL_SIZE"); envSize != "" {
-		if val, err := strconv.Atoi(envSize); err == nil && val > 0 {
-			jsPoolSize = val
-			log.Printf("Using JS_POOL_SIZE=%d from environment", val)
-		}
-	}
-
-	pyPoolSize := 5
-	if envSize := os.Getenv("PY_POOL_SIZE"); envSize != "" {
-		if val, err := strconv.Atoi(envSize); err == nil && val > 0 {
-			pyPoolSize = val
-			log.Printf("Using PY_POOL_SIZE=%d from environment", val)
-		}
-	}
-
-	rustPoolSize := 2
-	if envSize := os.Getenv("RUST_POOL_SIZE"); envSize != "" {
-		if val, err := strconv.Atoi(envSize); err == nil && val > 0 {
-			rustPoolSize = val
-			log.Printf("Using RUST_POOL_SIZE=%d from environment", val)
-		}
-	}
-
 	service := &CodeExecutionService{
 		tempDir:         filepath.Join(homeDir, ".code-grader", "executions"),
-		timeout:         10 * time.Second, // Increased from 5s to handle concurrent load
-		rustTimeout:     30 * time.Second,
 		queueTimeout:    queueTimeout,
 		maxConcurrent:   maxConcurrent,
-		jsDockerImage:   "code-grader-javascript",
-		pyDockerImage:   "code-grader-python",
-		rustDockerImage: "code-grader-rust",
 		executionSem:    make(chan struct{}, maxConcurrent),
 		imagesVerified:  false,
+		languageConfigs: make(map[string]*LanguageConfig),
+		pools:           make(map[string]*ContainerPool),
 		shutdownSignal:  make(chan struct{}),
 	}
 
+	// Initialize language configurations
+	service.initializeLanguageConfigs()
+
 	log.Printf("Code execution service configured: maxConcurrent=%d, queueTimeout=%s", maxConcurrent, queueTimeout)
-	log.Printf("Container pool sizes: JS=%d, Python=%d, Rust=%d", jsPoolSize, pyPoolSize, rustPoolSize)
+	logPoolSizes := make([]string, 0, len(service.languageConfigs))
+	for _, config := range service.languageConfigs {
+		logPoolSizes = append(logPoolSizes, fmt.Sprintf("%s=%d", config.Name, config.PoolSize))
+	}
+	log.Printf("Container pool sizes: %s", strings.Join(logPoolSizes, ", "))
 
 	// Initialize Docker images
 	if err := service.initializeDocker(); err != nil {
@@ -160,26 +149,8 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 
 	// Create and initialize container pools
 	log.Println("Initializing container pools...")
-
-	// JavaScript pool
-	service.jsPool = newContainerPool("javascript", service.jsDockerImage, jsPoolSize, 128, "0.5")
-	if err := service.initializePool(service.jsPool); err != nil {
-		return nil, fmt.Errorf("failed to initialize JavaScript pool: %w", err)
-	}
-
-	// Python pool
-	service.pyPool = newContainerPool("python", service.pyDockerImage, pyPoolSize, 128, "0.5")
-	if err := service.initializePool(service.pyPool); err != nil {
-		service.stopPool(service.jsPool) // Clean up JS pool
-		return nil, fmt.Errorf("failed to initialize Python pool: %w", err)
-	}
-
-	// Rust pool
-	service.rustPool = newContainerPool("rust", service.rustDockerImage, rustPoolSize, 512, "1.0")
-	if err := service.initializePool(service.rustPool); err != nil {
-		service.stopPool(service.jsPool) // Clean up JS pool
-		service.stopPool(service.pyPool) // Clean up Python pool
-		return nil, fmt.Errorf("failed to initialize Rust pool: %w", err)
+	if err := service.initializePools(); err != nil {
+		return nil, err
 	}
 
 	log.Println("All container pools initialized successfully")
@@ -194,6 +165,86 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	return service, nil
 }
 
+// initializeLanguageConfigs sets up all supported language configurations
+func (s *CodeExecutionService) initializeLanguageConfigs() {
+	// JavaScript configuration
+	jsPoolSize := getEnvInt("JS_POOL_SIZE", 5)
+	s.languageConfigs["javascript"] = &LanguageConfig{
+		Name:              "javascript",
+		FileExtension:     ".js",
+		DockerImage:       "code-grader-javascript",
+		DockerfilePath:    filepath.Join("docker", "javascript.Dockerfile"),
+		ImageBuildTimeout: 120 * time.Second,
+		ExecutionTimeout:  10 * time.Second,
+		MemoryMB:          128,
+		CPUs:              "0.5",
+		TmpfsSize:         "8m",
+		PIDsLimit:         50,
+		Interpreter:       "node",
+		RequiresCompile:   false,
+		Compiler:          "",
+		HealthCheckCmd:    []string{"node", "-e", "console.log('ok')"},
+		PoolSize:          jsPoolSize,
+	}
+	// Alias for "js"
+	s.languageConfigs["js"] = s.languageConfigs["javascript"]
+
+	// Python configuration
+	pyPoolSize := getEnvInt("PY_POOL_SIZE", 5)
+	s.languageConfigs["python"] = &LanguageConfig{
+		Name:              "python",
+		FileExtension:     ".py",
+		DockerImage:       "code-grader-python",
+		DockerfilePath:    filepath.Join("docker", "python.Dockerfile"),
+		ImageBuildTimeout: 120 * time.Second,
+		ExecutionTimeout:  10 * time.Second,
+		MemoryMB:          128,
+		CPUs:              "0.5",
+		TmpfsSize:         "8m",
+		PIDsLimit:         50,
+		Interpreter:       "python3 -u",
+		RequiresCompile:   false,
+		Compiler:          "",
+		HealthCheckCmd:    []string{"python3", "-c", "print('ok')"},
+		PoolSize:          pyPoolSize,
+	}
+	// Alias for "py"
+	s.languageConfigs["py"] = s.languageConfigs["python"]
+
+	// Rust configuration
+	rustPoolSize := getEnvInt("RUST_POOL_SIZE", 2)
+	s.languageConfigs["rust"] = &LanguageConfig{
+		Name:              "rust",
+		FileExtension:     ".rs",
+		DockerImage:       "code-grader-rust",
+		DockerfilePath:    filepath.Join("docker", "rust.Dockerfile"),
+		ImageBuildTimeout: 300 * time.Second, // Rust build takes longer
+		ExecutionTimeout:  30 * time.Second,  // Compilation + execution
+		MemoryMB:          512,
+		CPUs:              "1.0",
+		TmpfsSize:         "64m",
+		PIDsLimit:         100,
+		Interpreter:       "",
+		RequiresCompile:   true,
+		Compiler:          "rustc",
+		HealthCheckCmd:    []string{"rustc", "--version"},
+		PoolSize:          rustPoolSize,
+	}
+	// Alias for "rs"
+	s.languageConfigs["rs"] = s.languageConfigs["rust"]
+}
+
+// getEnvInt retrieves an integer from environment or returns default
+func getEnvInt(key string, defaultValue int) int {
+	if envValue := os.Getenv(key); envValue != "" {
+		if val, err := strconv.Atoi(envValue); err == nil && val > 0 {
+			log.Printf("Using %s=%d from environment", key, val)
+			return val
+		}
+	}
+	return defaultValue
+}
+
 // ExecuteCode executes code based on the language
 func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResult {
 	if strings.TrimSpace(code) == "" {
@@ -206,24 +257,22 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 
 	language = strings.ToLower(language)
 
-	// Route to appropriate pool
-	var pool *ContainerPool
-	var filename string
-
-	switch language {
-	case "javascript", "js":
-		pool = s.jsPool
-		filename = "code.js"
-	case "python", "py":
-		pool = s.pyPool
-		filename = "code.py"
-	case "rust", "rs":
-		pool = s.rustPool
-		filename = "code.rs"
-	default:
+	// Get language configuration
+	config, exists := s.languageConfigs[language]
+	if !exists {
 		return ExecutionResult{
 			Success:       false,
 			Error:         fmt.Sprintf("Language %s is not supported", language),
+			ExecutionTime: "error",
+		}
+	}
+
+	// Get pool for this language (use canonical name, not alias)
+	pool, exists := s.pools[config.Name]
+	if !exists {
+		return ExecutionResult{
+			Success:       false,
+			Error:         fmt.Sprintf("Pool for language %s not initialized", language),
 			ExecutionTime: "error",
 		}
 	}
@@ -234,16 +283,16 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 		// Successfully acquired container
 		defer func() {
 			pool.available <- containerIdx // Release container back to pool
-			log.Printf("%s container released (%d/%d available)", pool.language, len(pool.available), pool.poolSize)
+			log.Printf("%s container released (%d/%d available)", pool.language, len(pool.available), pool.config.PoolSize)
 		}()
-		log.Printf("%s container acquired (%d/%d available)", pool.language, len(pool.available)+1, pool.poolSize)
+		log.Printf("%s container acquired (%d/%d available)", pool.language, len(pool.available)+1, pool.config.PoolSize)
 
 		// Execute in pooled container
-		return s.executeInPooledContainer(code, pool, containerIdx, filename)
+		return s.executeInPooledContainer(code, pool, containerIdx)
 
 	case <-time.After(s.queueTimeout):
 		// Timeout waiting for container
-		log.Printf("%s pool timeout: all %d containers busy", pool.language, pool.poolSize)
+		log.Printf("%s pool timeout: all %d containers busy", pool.language, pool.config.PoolSize)
 		return ExecutionResult{
 			Success:       false,
 			Error:         "Server is at maximum capacity for this language, please try again in a few seconds",
@@ -256,30 +305,28 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 func (s *CodeExecutionService) initializeDocker() error {
 	fmt.Println("Initializing Docker execution environment...")
 
-	if err := s.buildDockerImage("javascript", s.jsDockerImage); err != nil {
-		return fmt.Errorf("failed to build JavaScript Docker image: %w", err)
-	}
-
-	if err := s.buildDockerImage("python", s.pyDockerImage); err != nil {
-		return fmt.Errorf("failed to build Python Docker image: %w", err)
-	}
-
-	if err := s.buildRustDockerImage(); err != nil {
-		return fmt.Errorf("failed to build Rust Docker image: %w", err)
+	// Build images for all unique configurations (skip aliases)
+	builtImages := make(map[string]bool)
+	for _, config := range s.languageConfigs {
+		if builtImages[config.Name] {
+			continue
+		}
+		if err := s.buildDockerImage(config); err != nil {
+			return fmt.Errorf("failed to build %s Docker image: %w", config.Name, err)
+		}
+		builtImages[config.Name] = true
 	}
 
 	fmt.Println("Docker execution environment ready")
 	return nil
 }
 
-// buildDockerImage builds a Docker image from the Dockerfile
-func (s *CodeExecutionService) buildDockerImage(language, imageName string) error {
-	dockerfilePath := filepath.Join("docker", language+".Dockerfile")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+// buildDockerImage builds a Docker image from the Dockerfile using language config
+func (s *CodeExecutionService) buildDockerImage(config *LanguageConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), config.ImageBuildTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "build", "-f", dockerfilePath, "-t", imageName, ".")
+	cmd := exec.CommandContext(ctx, "docker", "build", "-f", config.DockerfilePath, "-t", config.DockerImage, ".")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -289,229 +336,8 @@ func (s *CodeExecutionService) buildDockerImage(language, imageName string) erro
 		return fmt.Errorf("docker build failed: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
 
-	fmt.Printf("Successfully built Docker image: %s\n", imageName)
+	fmt.Printf("Successfully built Docker image: %s\n", config.DockerImage)
 	return nil
-}
-
-// buildRustDockerImage builds the Rust Docker image with extended timeout
-func (s *CodeExecutionService) buildRustDockerImage() error {
-	dockerfilePath := filepath.Join("docker", "rust.Dockerfile")
-
-	// Rust image build takes longer due to stdlib pre-compilation cache
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "docker", "build", "-f", dockerfilePath, "-t", s.rustDockerImage, ".")
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker build failed: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
-	}
-
-	fmt.Printf("Successfully built Docker image: %s\n", s.rustDockerImage)
-	return nil
-}
-
-// executeInDocker executes code in a Docker container
-func (s *CodeExecutionService) executeInDocker(code, image, filename string) ExecutionResult {
-	overallStart := time.Now()
-
-	// Skip image verification if already verified at startup (optimization)
-	var verifyDuration time.Duration
-	if !s.imagesVerified {
-		verifyStart := time.Now()
-		if err := s.verifyDockerImage(image); err != nil {
-			return ExecutionResult{
-				Success:       false,
-				Error:         fmt.Sprintf("Docker image not available: %v", err),
-				ExecutionTime: "error",
-			}
-		}
-		verifyDuration = time.Since(verifyStart)
-		log.Printf("[TIMING] Docker image verify: %v", verifyDuration)
-	} else {
-		// Images verified at startup, skip per-request verification
-		verifyDuration = 0
-	}
-
-	filePath := filepath.Join(s.tempDir, generateRandomID()+"_"+filename)
-
-	mkdirStart := time.Now()
-	if err := os.MkdirAll(s.tempDir, 0755); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Failed to create temp directory: %v", err),
-			ExecutionTime: "error",
-		}
-	}
-	mkdirDuration := time.Since(mkdirStart)
-	log.Printf("[TIMING] MkdirAll: %v", mkdirDuration)
-
-	writeStart := time.Now()
-	if err := os.WriteFile(filePath, []byte(code), 0644); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Failed to write code file: %v", err),
-			ExecutionTime: "error",
-		}
-	}
-	writeDuration := time.Since(writeStart)
-	log.Printf("[TIMING] Write file: %v", writeDuration)
-	defer os.Remove(filePath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	defer cancel()
-
-	dockerStart := time.Now()
-	cmd := exec.CommandContext(ctx, "docker", "run",
-		"--rm",
-		"--network", "none",
-		"--memory", "128m",
-		"--cpus", "0.5",
-		"--pids-limit", "50",
-		"--read-only",
-		"--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges",
-		"-v", filePath+":/workspace/"+filename+":ro",
-		image,
-		filename,
-	)
-
-	output, err := cmd.CombinedOutput()
-	dockerDuration := time.Since(dockerStart)
-	overallDuration := time.Since(overallStart)
-
-	log.Printf("[TIMING] Docker execution: %v", dockerDuration)
-	log.Printf("[TIMING] Total execution: %v (verify=%v, mkdir=%v, write=%v, docker=%v)",
-		overallDuration, verifyDuration, mkdirDuration, writeDuration, dockerDuration)
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return ExecutionResult{
-			Success:       false,
-			Error:         "Execution timed out",
-			ExecutionTime: "timeout",
-		}
-	}
-
-	if err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         string(output),
-			ExecutionTime: "error",
-		}
-	}
-
-	return ExecutionResult{
-		Success:       true,
-		Output:        string(output),
-		ExecutionTime: "completed",
-	}
-}
-
-// executeRustInDocker executes Rust code with compilation phase
-func (s *CodeExecutionService) executeRustInDocker(code string) ExecutionResult {
-	// Verify Docker image exists
-	if err := s.verifyDockerImage(s.rustDockerImage); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Docker image not available: %v", err),
-			ExecutionTime: "error",
-		}
-	}
-
-	// Create unique filename
-	randomID := generateRandomID()
-	filePath := filepath.Join(s.tempDir, randomID+"_code.rs")
-
-	if err := os.MkdirAll(s.tempDir, 0755); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Failed to create temp directory: %v", err),
-			ExecutionTime: "error",
-		}
-	}
-
-	// Write Rust source file
-	if err := os.WriteFile(filePath, []byte(code), 0644); err != nil {
-		return ExecutionResult{
-			Success:       false,
-			Error:         fmt.Sprintf("Failed to write code file: %v", err),
-			ExecutionTime: "error",
-		}
-	}
-	defer os.Remove(filePath)
-
-	// Use extended timeout for Rust compilation
-	ctx, cancel := context.WithTimeout(context.Background(), s.rustTimeout)
-	defer cancel()
-
-	// Two-phase execution script:
-	// Phase 1: Compile with rustc (output to /workspace/tmp/)
-	// Phase 2: Execute if compilation succeeds
-	// Set TMPDIR to writable tmpfs for rustc intermediate files
-	execScript := `#!/bin/sh
-export TMPDIR=/workspace/tmp
-rustc /workspace/code.rs -o /workspace/tmp/program 2>&1
-if [ $? -ne 0 ]; then
-    exit 1
-fi
-/workspace/tmp/program 2>&1
-`
-
-	cmd := exec.CommandContext(ctx, "docker", "run",
-		"--rm",
-		"--network", "none",
-		"--memory", "512m",
-		"--cpus", "1.0",
-		"--pids-limit", "100",
-		"--read-only",
-		"--tmpfs", "/workspace/tmp:size=64m,exec,mode=1777",
-		"--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges",
-		"-v", filePath+":/workspace/code.rs:ro",
-		s.rustDockerImage,
-		"/bin/sh", "-c", execScript,
-	)
-
-	startTime := time.Now()
-	output, err := cmd.CombinedOutput()
-	executionTime := time.Since(startTime)
-
-	// Handle timeout
-	if ctx.Err() == context.DeadlineExceeded {
-		return ExecutionResult{
-			Success:       false,
-			Error:         "Compilation or execution timed out (30s limit)",
-			ExecutionTime: fmt.Sprintf("%.2fs", executionTime.Seconds()),
-		}
-	}
-
-	// Handle compilation or execution errors
-	if err != nil {
-		errorMsg := string(output)
-
-		// Detect compilation errors vs runtime errors
-		if strings.Contains(errorMsg, "error:") || strings.Contains(errorMsg, "error[E") {
-			errorMsg = "Compilation failed:\n" + errorMsg
-		} else {
-			errorMsg = "Runtime error:\n" + errorMsg
-		}
-
-		return ExecutionResult{
-			Success:       false,
-			Error:         errorMsg,
-			ExecutionTime: fmt.Sprintf("%.2fs", executionTime.Seconds()),
-		}
-	}
-
-	return ExecutionResult{
-		Success:       true,
-		Output:        string(output),
-		ExecutionTime: fmt.Sprintf("%.2fs", executionTime.Seconds()),
-	}
 }
 
 // verifyDockerImage checks if a Docker image exists locally
@@ -528,7 +354,7 @@ func (s *CodeExecutionService) verifyDockerImage(imageName string) error {
 }
 
 // executeInPooledContainer executes code in a pre-started pooled container
-func (s *CodeExecutionService) executeInPooledContainer(code string, pool *ContainerPool, containerIdx int, filename string) ExecutionResult {
+func (s *CodeExecutionService) executeInPooledContainer(code string, pool *ContainerPool, containerIdx int) ExecutionResult {
 	// Check if server is shutting down
 	select {
 	case <-s.shutdownSignal:
@@ -562,44 +388,37 @@ func (s *CodeExecutionService) executeInPooledContainer(code string, pool *Conta
 	containerID := container.ID
 	pool.mutex.Unlock()
 
+	config := pool.config
+
 	// Create unique temporary filename to avoid collisions
-	uniqueFilename := fmt.Sprintf("%s_%s", generateRandomID()[:8], filename)
+	uniqueFilename := fmt.Sprintf("%s_%s%s", generateRandomID()[:8], "code", config.FileExtension)
 	containerPath := fmt.Sprintf("/workspace/tmp/%s", uniqueFilename)
 
 	// Write code to stdin and execute via docker exec
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	if pool.language == "rust" {
-		ctx, cancel = context.WithTimeout(context.Background(), s.rustTimeout)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), config.ExecutionTimeout)
 	defer cancel()
 
 	var execCmd *exec.Cmd
 
-	if pool.language == "rust" {
-		// Rust requires compilation step with TMPDIR set to writable location
+	if config.RequiresCompile {
+		// Compiled languages (e.g., Rust)
 		// Use trap to ensure cleanup runs even on failure
+		programPath := "/workspace/tmp/program"
 		execScript := fmt.Sprintf(`
-cleanup() { rm -f %s /workspace/tmp/program 2>/dev/null; }
+cleanup() { rm -f %s %s 2>/dev/null; }
 trap cleanup EXIT
 export TMPDIR=/workspace/tmp
-cat > %s && rustc %s -o /workspace/tmp/program 2>&1 && /workspace/tmp/program 2>&1`,
-			containerPath, containerPath, containerPath)
+cat > %s && %s %s -o %s 2>&1 && %s 2>&1`,
+			containerPath, programPath, containerPath, config.Compiler, containerPath, programPath, programPath)
 		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "sh", "-c", execScript)
 	} else {
-		// JavaScript and Python can execute directly
+		// Interpreted languages (e.g., JavaScript, Python)
 		// Use trap to ensure cleanup runs even on failure
-		var interpreter string
-		if pool.language == "javascript" {
-			interpreter = "node"
-		} else {
-			interpreter = "python3 -u"
-		}
-
 		execScript := fmt.Sprintf(`
 cleanup() { rm -f %s 2>/dev/null; }
 trap cleanup EXIT
 cat > %s && %s %s 2>&1`,
-			containerPath, containerPath, interpreter, containerPath)
+			containerPath, containerPath, config.Interpreter, containerPath)
 		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "sh", "-c", execScript)
 	}
 
@@ -630,9 +449,10 @@ cat > %s && %s %s 2>&1`,
 
 	// Check for execution errors
 	if err != nil {
-		// For Rust, detect compilation vs runtime errors
 		errorMsg := string(output)
-		if pool.language == "rust" {
+
+		// For compiled languages, detect compilation vs runtime errors
+		if config.RequiresCompile {
 			if strings.Contains(errorMsg, "error:") || strings.Contains(errorMsg, "error[E") {
 				errorMsg = "Compilation failed:\n" + errorMsg
 			} else {
@@ -662,48 +482,36 @@ func generateRandomID() string {
 }
 
 // newContainerPool creates a new container pool
-func newContainerPool(language, image string, poolSize, memoryMB int, cpus string) *ContainerPool {
+func newContainerPool(config *LanguageConfig) *ContainerPool {
 	return &ContainerPool{
-		language:   language,
-		image:      image,
-		poolSize:   poolSize,
-		memoryMB:   memoryMB,
-		cpus:       cpus,
-		containers: make([]*Container, poolSize),
-		available:  make(chan int, poolSize),
+		language:   config.Name,
+		config:     config,
+		containers: make([]*Container, config.PoolSize),
+		available:  make(chan int, config.PoolSize),
 	}
 }
 
 // healthCheckContainer verifies a container is running and can execute code
-func (s *CodeExecutionService) healthCheckContainer(containerID, language string) error {
+func (s *CodeExecutionService) healthCheckContainer(containerID string, config *LanguageConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Run a simple health check command based on language
-	var healthCmd *exec.Cmd
-	switch language {
-	case "javascript":
-		healthCmd = exec.CommandContext(ctx, "docker", "exec", containerID, "node", "-e", "console.log('ok')")
-	case "python":
-		healthCmd = exec.CommandContext(ctx, "docker", "exec", containerID, "python3", "-c", "print('ok')")
-	case "rust":
-		healthCmd = exec.CommandContext(ctx, "docker", "exec", containerID, "rustc", "--version")
-	default:
-		return fmt.Errorf("unknown language: %s", language)
-	}
+	// Run health check command from config
+	args := append([]string{"exec", containerID}, config.HealthCheckCmd...)
+	healthCmd := exec.CommandContext(ctx, "docker", args...)
 
 	output, err := healthCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("health check command failed: %v, output: %s", err, string(output))
 	}
 
-	log.Printf("Health check passed for %s container: %s", language, containerID[:12])
+	log.Printf("Health check passed for %s container: %s", config.Name, containerID[:12])
 	return nil
 }
 
 // startContainer starts a single Docker container and returns its ID
-func (s *CodeExecutionService) startContainer(language, image string, memoryMB int, cpus string) (string, error) {
-	containerName := fmt.Sprintf("code-grader-%s-%s", language, generateRandomID()[:8])
+func (s *CodeExecutionService) startContainer(config *LanguageConfig) (string, error) {
+	containerName := fmt.Sprintf("code-grader-%s-%s", config.Name, generateRandomID()[:8])
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -713,25 +521,16 @@ func (s *CodeExecutionService) startContainer(language, image string, memoryMB i
 		"run", "-d",
 		"--name", containerName,
 		"--network", "none",
-		"--memory", fmt.Sprintf("%dm", memoryMB),
-		"--cpus", cpus,
-		"--pids-limit", "50",
+		"--memory", fmt.Sprintf("%dm", config.MemoryMB),
+		"--cpus", config.CPUs,
+		"--pids-limit", strconv.Itoa(config.PIDsLimit),
 		"--read-only",
+		"--tmpfs", fmt.Sprintf("/workspace/tmp:size=%s,exec,mode=1777", config.TmpfsSize),
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
+		config.DockerImage,
+		"sh", "-c", "sleep infinity",
 	}
-
-	// Add tmpfs for code execution (Rust needs more for compilation)
-	if language == "rust" {
-		args = append(args, "--tmpfs", "/workspace/tmp:size=64m,exec,mode=1777")
-	} else {
-		args = append(args, "--tmpfs", "/workspace/tmp:size=8m,exec,mode=1777")
-	}
-
-	args = append(args, image)
-
-	// Keep container running with sleep infinity
-	args = append(args, "sh", "-c", "sleep infinity")
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 
@@ -755,16 +554,47 @@ func (s *CodeExecutionService) startContainer(language, image string, memoryMB i
 		containerID = strings.TrimSpace(string(idOutput))
 	}
 
-	log.Printf("Started %s container: %s (memory=%dMB, cpus=%s)", language, containerID[:12], memoryMB, cpus)
+	log.Printf("Started %s container: %s (memory=%dMB, cpus=%s)", config.Name, containerID[:12], config.MemoryMB, config.CPUs)
 	return containerID, nil
+}
+
+// initializePools creates and initializes all container pools
+func (s *CodeExecutionService) initializePools() error {
+	// Track which pools we've initialized for cleanup on error
+	initialized := make([]string, 0, len(s.languageConfigs))
+
+	// Initialize pools for unique configurations (skip aliases)
+	createdPools := make(map[string]bool)
+	for _, config := range s.languageConfigs {
+		if createdPools[config.Name] {
+			continue
+		}
+
+		log.Printf("Initializing %s container pool (size=%d)...", config.Name, config.PoolSize)
+
+		pool := newContainerPool(config)
+		if err := s.initializePool(pool); err != nil {
+			// Clean up any pools we've already initialized
+			for _, lang := range initialized {
+				s.stopPool(s.pools[lang])
+			}
+			return fmt.Errorf("failed to initialize %s pool: %w", config.Name, err)
+		}
+
+		s.pools[config.Name] = pool
+		initialized = append(initialized, config.Name)
+		createdPools[config.Name] = true
+
+		log.Printf("%s container pool ready: %d containers", config.Name, config.PoolSize)
+	}
+
+	return nil
 }
 
 // initializePool starts all containers in a pool
 func (s *CodeExecutionService) initializePool(pool *ContainerPool) error {
-	log.Printf("Initializing %s container pool (size=%d)...", pool.language, pool.poolSize)
-
-	for i := 0; i < pool.poolSize; i++ {
-		containerID, err := s.startContainer(pool.language, pool.image, pool.memoryMB, pool.cpus)
+	for i := 0; i < pool.config.PoolSize; i++ {
+		containerID, err := s.startContainer(pool.config)
 		if err != nil {
 			// Clean up any containers we've already started
 			s.stopPool(pool)
@@ -772,7 +602,7 @@ func (s *CodeExecutionService) initializePool(pool *ContainerPool) error {
 		}
 
 		// Health check the container
-		if err := s.healthCheckContainer(containerID, pool.language); err != nil {
+		if err := s.healthCheckContainer(containerID, pool.config); err != nil {
 			s.stopPool(pool)
 			return fmt.Errorf("health check failed for container %d (%s): %w", i, containerID[:12], err)
 		}
@@ -791,7 +621,6 @@ func (s *CodeExecutionService) initializePool(pool *ContainerPool) error {
 		pool.available <- i // Mark as available
 	}
 
-	log.Printf("%s container pool ready: %d containers", pool.language, pool.poolSize)
 	return nil
 }
 
@@ -835,25 +664,6 @@ func (s *CodeExecutionService) stopPool(pool *ContainerPool) {
 	}
 }
 
-// resetContainerState cleans up any leftover files and processes in a container
-func (s *CodeExecutionService) resetContainerState(containerID, language string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Kill any lingering processes (best effort, may fail if no processes)
-	killCmd := exec.CommandContext(ctx, "docker", "exec", containerID, "sh", "-c", "pkill -9 -u coderunner || true")
-	killCmd.Run()
-
-	// Clean up workspace files
-	cleanCmd := exec.CommandContext(ctx, "docker", "exec", containerID, "sh", "-c", "rm -rf /workspace/*.js /workspace/*.py /workspace/*.rs /workspace/tmp/* 2>/dev/null || true")
-	if err := cleanCmd.Run(); err != nil {
-		log.Printf("Warning: failed to clean container %s: %v", containerID[:12], err)
-		return err
-	}
-
-	return nil
-}
-
 // shouldRotateContainer checks if a container should be rotated based on age or execution count
 func (s *CodeExecutionService) shouldRotateContainer(container *Container) bool {
 	if container == nil {
@@ -888,14 +698,14 @@ func (s *CodeExecutionService) rotateContainer(pool *ContainerPool, containerIdx
 	log.Printf("Rotating %s container %s (executions=%d, age=%v)", pool.language, oldContainer.ID[:12], oldContainer.ExecutionCount, time.Since(oldContainer.CreatedAt))
 
 	// Step 1: Start new container
-	newContainerID, err := s.startContainer(pool.language, pool.image, pool.memoryMB, pool.cpus)
+	newContainerID, err := s.startContainer(pool.config)
 	if err != nil {
 		log.Printf("Failed to start replacement container: %v", err)
 		return err // Keep old container running
 	}
 
 	// Step 2: Health check new container
-	if err := s.healthCheckContainer(newContainerID, pool.language); err != nil {
+	if err := s.healthCheckContainer(newContainerID, pool.config); err != nil {
 		log.Printf("Health check failed for replacement container: %v", err)
 		s.stopContainer(newContainerID)
 		return err // Keep old container running
@@ -936,9 +746,9 @@ func (s *CodeExecutionService) containerHealthMonitor() {
 
 	for range ticker.C {
 		log.Println("Running container health checks...")
-		s.healthCheckPool(s.jsPool)
-		s.healthCheckPool(s.pyPool)
-		s.healthCheckPool(s.rustPool)
+		for _, pool := range s.pools {
+			s.healthCheckPool(pool)
+		}
 		log.Println("Container health checks completed")
 	}
 }
@@ -949,7 +759,7 @@ func (s *CodeExecutionService) healthCheckPool(pool *ContainerPool) {
 		return
 	}
 
-	for i := 0; i < pool.poolSize; i++ {
+	for i := 0; i < pool.config.PoolSize; i++ {
 		pool.mutex.RLock()
 		container := pool.containers[i]
 		pool.mutex.RUnlock()
@@ -959,7 +769,7 @@ func (s *CodeExecutionService) healthCheckPool(pool *ContainerPool) {
 		}
 
 		// Perform health check
-		if err := s.healthCheckContainer(container.ID, pool.language); err != nil {
+		if err := s.healthCheckContainer(container.ID, pool.config); err != nil {
 			log.Printf("HEALTH CHECK FAILED for %s container %s: %v", pool.language, container.ID[:12], err)
 
 			// Mark container for rotation by incrementing memory errors
@@ -981,9 +791,9 @@ func (s *CodeExecutionService) containerRotationScheduler() {
 
 	for range ticker.C {
 		log.Println("Running container rotation check...")
-		s.checkAndRotateContainersInPool(s.jsPool)
-		s.checkAndRotateContainersInPool(s.pyPool)
-		s.checkAndRotateContainersInPool(s.rustPool)
+		for _, pool := range s.pools {
+			s.checkAndRotateContainersInPool(pool)
+		}
 		log.Println("Container rotation check completed")
 	}
 }
@@ -994,7 +804,7 @@ func (s *CodeExecutionService) checkAndRotateContainersInPool(pool *ContainerPoo
 		return
 	}
 
-	for i := 0; i < pool.poolSize; i++ {
+	for i := 0; i < pool.config.PoolSize; i++ {
 		pool.mutex.RLock()
 		container := pool.containers[i]
 		pool.mutex.RUnlock()
@@ -1030,34 +840,26 @@ func (s *CodeExecutionService) checkAndRotateContainersInPool(pool *ContainerPoo
 
 // PoolStatus represents the status of a single pool
 type PoolStatus struct {
-	Language    string              `json:"language"`
-	PoolSize    int                 `json:"poolSize"`
-	Available   int                 `json:"available"`
-	Containers  []ContainerStatus   `json:"containers"`
+	Language   string            `json:"language"`
+	PoolSize   int               `json:"poolSize"`
+	Available  int               `json:"available"`
+	Containers []ContainerStatus `json:"containers"`
 }
 
 // ContainerStatus represents the status of a single container
 type ContainerStatus struct {
-	ID             string  `json:"id"`
-	ExecutionCount int     `json:"executionCount"`
-	Age            string  `json:"age"`
-	LastUsed       string  `json:"lastUsed"`
+	ID             string `json:"id"`
+	ExecutionCount int    `json:"executionCount"`
+	Age            string `json:"age"`
+	LastUsed       string `json:"lastUsed"`
 }
 
 // GetPoolStatus returns the current status of all container pools
 func (s *CodeExecutionService) GetPoolStatus() map[string]PoolStatus {
 	status := make(map[string]PoolStatus)
 
-	if s.jsPool != nil {
-		status["javascript"] = s.getPoolStatusForPool(s.jsPool)
-	}
-
-	if s.pyPool != nil {
-		status["python"] = s.getPoolStatusForPool(s.pyPool)
-	}
-
-	if s.rustPool != nil {
-		status["rust"] = s.getPoolStatusForPool(s.rustPool)
+	for language, pool := range s.pools {
+		status[language] = s.getPoolStatusForPool(pool)
 	}
 
 	return status
@@ -1082,7 +884,7 @@ func (s *CodeExecutionService) getPoolStatusForPool(pool *ContainerPool) PoolSta
 
 	return PoolStatus{
 		Language:   pool.language,
-		PoolSize:   pool.poolSize,
+		PoolSize:   pool.config.PoolSize,
 		Available:  len(pool.available),
 		Containers: containers,
 	}
@@ -1112,8 +914,8 @@ func (s *CodeExecutionService) Cleanup() {
 
 	// Now clean up container pools
 	log.Println("Stopping container pools...")
-	s.stopPool(s.jsPool)
-	s.stopPool(s.pyPool)
-	s.stopPool(s.rustPool)
+	for _, pool := range s.pools {
+		s.stopPool(pool)
+	}
 	log.Println("Container pools cleaned up. Shutdown complete.")
 }
