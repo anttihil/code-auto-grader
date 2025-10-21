@@ -28,19 +28,21 @@ const (
 
 // CodeExecutionService handles secure code execution in Docker containers
 type CodeExecutionService struct {
-	tempDir         string
-	timeout         time.Duration
-	rustTimeout     time.Duration
-	queueTimeout    time.Duration
-	maxConcurrent   int
-	jsDockerImage   string
-	pyDockerImage   string
-	rustDockerImage string
-	executionSem    chan struct{} // Semaphore for concurrency control
-	imagesVerified  bool          // Track if images were verified at startup
-	jsPool          *ContainerPool
-	pyPool          *ContainerPool
-	rustPool        *ContainerPool
+	tempDir          string
+	timeout          time.Duration
+	rustTimeout      time.Duration
+	queueTimeout     time.Duration
+	maxConcurrent    int
+	jsDockerImage    string
+	pyDockerImage    string
+	rustDockerImage  string
+	executionSem     chan struct{} // Semaphore for concurrency control
+	imagesVerified   bool          // Track if images were verified at startup
+	jsPool           *ContainerPool
+	pyPool           *ContainerPool
+	rustPool         *ContainerPool
+	activeExecutions sync.WaitGroup // Track in-flight executions for graceful shutdown
+	shutdownSignal   chan struct{}  // Signal to stop accepting new requests
 }
 
 // ExecutionResult represents the result of code execution
@@ -142,6 +144,7 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 		rustDockerImage: "code-grader-rust",
 		executionSem:    make(chan struct{}, maxConcurrent),
 		imagesVerified:  false,
+		shutdownSignal:  make(chan struct{}),
 	}
 
 	log.Printf("Code execution service configured: maxConcurrent=%d, queueTimeout=%s", maxConcurrent, queueTimeout)
@@ -180,6 +183,13 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	}
 
 	log.Println("All container pools initialized successfully")
+
+	// Start background maintenance goroutines
+	go service.containerRotationScheduler()
+	log.Println("Container rotation scheduler started")
+
+	go service.containerHealthMonitor()
+	log.Println("Container health monitor started")
 
 	return service, nil
 }
@@ -519,16 +529,37 @@ func (s *CodeExecutionService) verifyDockerImage(imageName string) error {
 
 // executeInPooledContainer executes code in a pre-started pooled container
 func (s *CodeExecutionService) executeInPooledContainer(code string, pool *ContainerPool, containerIdx int, filename string) ExecutionResult {
+	// Check if server is shutting down
+	select {
+	case <-s.shutdownSignal:
+		return ExecutionResult{
+			Success:       false,
+			Error:         "Server is shutting down, please try again later",
+			ExecutionTime: "error",
+		}
+	default:
+	}
+
+	// Track this execution for graceful shutdown
+	s.activeExecutions.Add(1)
+	defer s.activeExecutions.Done()
+
 	overallStart := time.Now()
 
-	pool.mutex.RLock()
-	container := pool.containers[containerIdx]
-	pool.mutex.RUnlock()
-
-	// Update container metrics
+	// Get container and update metrics atomically to avoid race conditions
 	pool.mutex.Lock()
+	container := pool.containers[containerIdx]
+	if container == nil {
+		pool.mutex.Unlock()
+		return ExecutionResult{
+			Success:       false,
+			Error:         "Container not available",
+			ExecutionTime: "error",
+		}
+	}
 	container.LastUsedAt = time.Now()
 	container.ExecutionCount++
+	containerID := container.ID
 	pool.mutex.Unlock()
 
 	// Create unique temporary filename to avoid collisions
@@ -546,11 +577,17 @@ func (s *CodeExecutionService) executeInPooledContainer(code string, pool *Conta
 
 	if pool.language == "rust" {
 		// Rust requires compilation step with TMPDIR set to writable location
-		execScript := fmt.Sprintf(`export TMPDIR=/workspace/tmp && cat > %s && rustc %s -o /workspace/tmp/program 2>&1 && /workspace/tmp/program 2>&1; rm -f %s /workspace/tmp/program`,
+		// Use trap to ensure cleanup runs even on failure
+		execScript := fmt.Sprintf(`
+cleanup() { rm -f %s /workspace/tmp/program 2>/dev/null; }
+trap cleanup EXIT
+export TMPDIR=/workspace/tmp
+cat > %s && rustc %s -o /workspace/tmp/program 2>&1 && /workspace/tmp/program 2>&1`,
 			containerPath, containerPath, containerPath)
-		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", container.ID, "sh", "-c", execScript)
+		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "sh", "-c", execScript)
 	} else {
 		// JavaScript and Python can execute directly
+		// Use trap to ensure cleanup runs even on failure
 		var interpreter string
 		if pool.language == "javascript" {
 			interpreter = "node"
@@ -558,8 +595,12 @@ func (s *CodeExecutionService) executeInPooledContainer(code string, pool *Conta
 			interpreter = "python3 -u"
 		}
 
-		execScript := fmt.Sprintf(`cat > %s && %s %s 2>&1; rm -f %s`, containerPath, interpreter, containerPath, containerPath)
-		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", container.ID, "sh", "-c", execScript)
+		execScript := fmt.Sprintf(`
+cleanup() { rm -f %s 2>/dev/null; }
+trap cleanup EXIT
+cat > %s && %s %s 2>&1`,
+			containerPath, containerPath, interpreter, containerPath)
+		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "sh", "-c", execScript)
 	}
 
 	// Pipe code to stdin
@@ -570,8 +611,13 @@ func (s *CodeExecutionService) executeInPooledContainer(code string, pool *Conta
 	dockerDuration := time.Since(dockerStart)
 	overallDuration := time.Since(overallStart)
 
+	// Read execution count for logging (thread-safe read)
+	pool.mutex.RLock()
+	execCount := container.ExecutionCount
+	pool.mutex.RUnlock()
+
 	log.Printf("[TIMING] %s execution in pooled container: docker_exec=%v, total=%v, container_id=%s, executions=%d",
-		pool.language, dockerDuration, overallDuration, container.ID[:12], container.ExecutionCount)
+		pool.language, dockerDuration, overallDuration, containerID[:12], execCount)
 
 	// Check for timeout
 	if ctx.Err() == context.DeadlineExceeded {
@@ -881,6 +927,67 @@ func (s *CodeExecutionService) rotateContainer(pool *ContainerPool, containerIdx
 	return nil
 }
 
+// containerHealthMonitor runs in the background and periodically health checks all containers
+func (s *CodeExecutionService) containerHealthMonitor() {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("Container health monitor running (checking every 2 minutes)")
+
+	for range ticker.C {
+		log.Println("Running container health checks...")
+		s.healthCheckPool(s.jsPool)
+		s.healthCheckPool(s.pyPool)
+		s.healthCheckPool(s.rustPool)
+		log.Println("Container health checks completed")
+	}
+}
+
+// healthCheckPool performs health checks on all containers in a pool
+func (s *CodeExecutionService) healthCheckPool(pool *ContainerPool) {
+	if pool == nil {
+		return
+	}
+
+	for i := 0; i < pool.poolSize; i++ {
+		pool.mutex.RLock()
+		container := pool.containers[i]
+		pool.mutex.RUnlock()
+
+		if container == nil {
+			continue
+		}
+
+		// Perform health check
+		if err := s.healthCheckContainer(container.ID, pool.language); err != nil {
+			log.Printf("HEALTH CHECK FAILED for %s container %s: %v", pool.language, container.ID[:12], err)
+
+			// Mark container for rotation by incrementing memory errors
+			pool.mutex.Lock()
+			container.MemoryErrors++
+			pool.mutex.Unlock()
+
+			log.Printf("Container %s marked for rotation (health check failures: %d)", container.ID[:12], container.MemoryErrors)
+		}
+	}
+}
+
+// containerRotationScheduler runs in the background and periodically checks for containers that need rotation
+func (s *CodeExecutionService) containerRotationScheduler() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("Container rotation scheduler running (checking every 5 minutes)")
+
+	for range ticker.C {
+		log.Println("Running container rotation check...")
+		s.checkAndRotateContainersInPool(s.jsPool)
+		s.checkAndRotateContainersInPool(s.pyPool)
+		s.checkAndRotateContainersInPool(s.rustPool)
+		log.Println("Container rotation check completed")
+	}
+}
+
 // checkAndRotateContainersInPool checks all containers in a pool and rotates if needed
 func (s *CodeExecutionService) checkAndRotateContainersInPool(pool *ContainerPool) {
 	if pool == nil {
@@ -892,12 +999,18 @@ func (s *CodeExecutionService) checkAndRotateContainersInPool(pool *ContainerPoo
 		container := pool.containers[i]
 		pool.mutex.RUnlock()
 
+		if container == nil {
+			log.Printf("Skipping nil container at index %d in %s pool", i, pool.language)
+			continue
+		}
+
 		if s.shouldRotateContainer(container) {
 			// Try to acquire the container from the pool (non-blocking)
 			select {
 			case idx := <-pool.available:
 				if idx == i {
 					// We successfully acquired the container that needs rotation
+					log.Printf("Rotating %s container at index %d", pool.language, i)
 					if err := s.rotateContainer(pool, i); err != nil {
 						log.Printf("Failed to rotate container: %v", err)
 					}
@@ -909,7 +1022,7 @@ func (s *CodeExecutionService) checkAndRotateContainersInPool(pool *ContainerPoo
 				}
 			default:
 				// Container is busy, skip rotation for now
-				log.Printf("Skipping rotation for busy container %s", container.ID[:12])
+				log.Printf("Skipping rotation for busy %s container %s (index %d)", pool.language, container.ID[:12], i)
 			}
 		}
 	}
@@ -975,11 +1088,32 @@ func (s *CodeExecutionService) getPoolStatusForPool(pool *ContainerPool) PoolSta
 	}
 }
 
-// Cleanup stops all container pools (call on shutdown)
+// Cleanup stops all container pools with graceful shutdown (call on shutdown)
 func (s *CodeExecutionService) Cleanup() {
-	log.Println("Cleaning up container pools...")
+	log.Println("Initiating graceful shutdown...")
+
+	// Signal to stop accepting new requests
+	close(s.shutdownSignal)
+	log.Println("No longer accepting new execution requests")
+
+	// Wait for in-flight executions with timeout
+	done := make(chan struct{})
+	go func() {
+		s.activeExecutions.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("All in-flight executions completed successfully")
+	case <-time.After(30 * time.Second):
+		log.Println("Shutdown timeout reached (30s), forcing cleanup of remaining executions")
+	}
+
+	// Now clean up container pools
+	log.Println("Stopping container pools...")
 	s.stopPool(s.jsPool)
 	s.stopPool(s.pyPool)
 	s.stopPool(s.rustPool)
-	log.Println("Container pools cleaned up")
+	log.Println("Container pools cleaned up. Shutdown complete.")
 }
