@@ -7,6 +7,7 @@ import (
 	"github.com/anttihil/code-auto-grader/handlers"
 	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
 	"github.com/anttihil/code-auto-grader/services"
+	"github.com/anttihil/code-auto-grader/services/executor"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -21,7 +22,7 @@ func main() {
 	// Initialize services
 	log.Println("Initializing services...")
 
-	codeExecutor, err := services.NewCodeExecutionService()
+	codeExecutor, err := executor.NewCodeExecutionService()
 	if err != nil {
 		log.Fatalf("Failed to initialize code execution service: %v", err)
 	}

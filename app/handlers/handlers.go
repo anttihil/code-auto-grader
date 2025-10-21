@@ -5,21 +5,22 @@ import (
 	"time"
 
 	"github.com/anttihil/code-auto-grader/services"
+	"github.com/anttihil/code-auto-grader/services/executor"
 	"github.com/labstack/echo/v4"
 )
 
 // SubmissionHandler handles code execution and submission endpoints
 type SubmissionHandler struct {
-	codeExecutor *services.CodeExecutionService
+	codeExecutor *executor.CodeExecutionService
 }
 
 // NewSubmissionHandler creates a new submission handler with dependencies
-func NewSubmissionHandler(executor *services.CodeExecutionService) *SubmissionHandler {
-	if executor == nil {
+func NewSubmissionHandler(exec *executor.CodeExecutionService) *SubmissionHandler {
+	if exec == nil {
 		panic("code executor is required")
 	}
 	return &SubmissionHandler{
-		codeExecutor: executor,
+		codeExecutor: exec,
 	}
 }
 
