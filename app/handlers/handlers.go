@@ -1,10 +1,12 @@
 package handlers
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/anttihil/code-auto-grader/internal/logger"
 	"github.com/anttihil/code-auto-grader/services"
 	"github.com/anttihil/code-auto-grader/services/executor"
 	"github.com/labstack/echo/v4"
@@ -45,6 +47,16 @@ func NewExerciseHandler(gemini *services.GeminiService) *ExerciseHandler {
 	}
 }
 
+// getRequestContext extracts request context with request ID from Echo context
+func getRequestContext(c echo.Context) (context.Context, string) {
+	requestID := "unknown"
+	if id, ok := c.Get("request_id").(string); ok {
+		requestID = id
+	}
+	ctx := context.WithValue(c.Request().Context(), "request_id", requestID)
+	return ctx, requestID
+}
+
 // HealthCheck returns the health status of the API
 func HealthCheck(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
@@ -82,6 +94,8 @@ func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 
 // GenerateExercise generates a new coding exercise using AI
 func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
+	ctx, requestID := getRequestContext(c)
+
 	var req struct {
 		Difficulty string `json:"difficulty"`
 		Topic      string `json:"topic"`
@@ -89,6 +103,10 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
+		logger.Logger.Warn("invalid request body",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
@@ -106,14 +124,29 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	exercise, err := h.gemini.GenerateExercise(req.Difficulty, req.Topic, req.Language)
+	logger.Logger.Info("generating exercise",
+		slog.String("request_id", requestID),
+		slog.String("difficulty", req.Difficulty),
+		slog.String("topic", req.Topic),
+		slog.String("language", req.Language),
+	)
+
+	exercise, err := h.gemini.GenerateExerciseWithContext(ctx, req.Difficulty, req.Topic, req.Language)
 	if err != nil {
+		logger.Logger.Error("failed to generate exercise",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to generate exercise",
 			"message": err.Error(),
 		})
 	}
+
+	logger.Logger.Info("exercise generated successfully",
+		slog.String("request_id", requestID),
+	)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":  true,
@@ -123,12 +156,18 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 
 // RunCode executes code without evaluation
 func (h *SubmissionHandler) RunCode(c echo.Context) error {
+	ctx, requestID := getRequestContext(c)
+
 	var req struct {
 		Code     string `json:"code"`
 		Language string `json:"language"`
 	}
 
 	if err := c.Bind(&req); err != nil {
+		logger.Logger.Warn("invalid request body",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
@@ -136,6 +175,9 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 	}
 
 	if req.Code == "" {
+		logger.Logger.Warn("missing code",
+			slog.String("request_id", requestID),
+		)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Code is required",
@@ -146,17 +188,32 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	result := h.codeExecutor.ExecuteCode(req.Code, req.Language)
+	logger.Logger.Info("running code",
+		slog.String("request_id", requestID),
+		slog.String("language", req.Language),
+		slog.Int("code_length", len(req.Code)),
+	)
+
+	result := h.codeExecutor.ExecuteCodeWithContext(ctx, req.Code, req.Language)
 
 	// Check if execution timed out due to queue capacity
 	if !result.Success && result.ExecutionTime == "timeout" &&
 		(result.Error == "Server is at maximum capacity, please try again in a few seconds") {
+		logger.Logger.Warn("server at capacity",
+			slog.String("request_id", requestID),
+			slog.String("language", req.Language),
+		)
 		c.Response().Header().Set("Retry-After", "5")
 		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
 			"success":         false,
 			"executionResult": result,
 		})
 	}
+
+	logger.Logger.Info("code execution completed",
+		slog.String("request_id", requestID),
+		slog.Bool("success", result.Success),
+	)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":         result.Success,
@@ -166,7 +223,11 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 
 // SubmitCode submits code for AI evaluation
 func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
-	log.Println("SubmitCode endpoint called")
+	ctx, requestID := getRequestContext(c)
+
+	logger.Logger.Info("submit code endpoint called",
+		slog.String("request_id", requestID),
+	)
 
 	var req struct {
 		Code     string `json:"code"`
@@ -175,7 +236,10 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		log.Printf("ERROR: Failed to bind request body: %v", err)
+		logger.Logger.Error("failed to bind request body",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Invalid request body",
@@ -183,7 +247,11 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	if req.Code == "" || req.Exercise == "" {
-		log.Println("ERROR: Missing required fields (code or exercise)")
+		logger.Logger.Warn("missing required fields",
+			slog.String("request_id", requestID),
+			slog.Bool("has_code", req.Code != ""),
+			slog.Bool("has_exercise", req.Exercise != ""),
+		)
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "Code and exercise are required",
@@ -194,17 +262,30 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		req.Language = "javascript"
 	}
 
-	log.Printf("Submitting code for evaluation - Language: %s, Code length: %d, Exercise length: %d",
-		req.Language, len(req.Code), len(req.Exercise))
+	logger.Logger.Info("submitting code for evaluation",
+		slog.String("request_id", requestID),
+		slog.String("language", req.Language),
+		slog.Int("code_length", len(req.Code)),
+		slog.Int("exercise_length", len(req.Exercise)),
+	)
 
 	// Execute the code
-	log.Println("Executing code...")
-	executionResult := h.codeExecutor.ExecuteCode(req.Code, req.Language)
-	log.Printf("Code execution completed - Success: %v", executionResult.Success)
+	logger.Logger.Debug("executing code",
+		slog.String("request_id", requestID),
+	)
+	executionResult := h.codeExecutor.ExecuteCodeWithContext(ctx, req.Code, req.Language)
+	logger.Logger.Info("code execution completed",
+		slog.String("request_id", requestID),
+		slog.Bool("success", executionResult.Success),
+	)
 
 	// Check if execution timed out due to queue capacity
 	if !executionResult.Success && executionResult.ExecutionTime == "timeout" &&
 		(executionResult.Error == "Server is at maximum capacity, please try again in a few seconds") {
+		logger.Logger.Warn("server at capacity during submission",
+			slog.String("request_id", requestID),
+			slog.String("language", req.Language),
+		)
 		c.Response().Header().Set("Retry-After", "5")
 		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
 			"success":         false,
@@ -213,10 +294,15 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 	}
 
 	// Get AI feedback
-	log.Println("Requesting AI feedback from Gemini...")
-	feedback, err := h.gemini.CheckSubmission(req.Exercise, req.Code, req.Language)
+	logger.Logger.Debug("requesting AI feedback from Gemini",
+		slog.String("request_id", requestID),
+	)
+	feedback, err := h.gemini.CheckSubmissionWithContext(ctx, req.Exercise, req.Code, req.Language)
 	if err != nil {
-		log.Printf("ERROR: Failed to get AI feedback: %v", err)
+		logger.Logger.Error("failed to get AI feedback",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to process submission",
@@ -224,7 +310,9 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		})
 	}
 
-	log.Println("SubmitCode completed successfully, returning response")
+	logger.Logger.Info("submit code completed successfully",
+		slog.String("request_id", requestID),
+	)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success":         executionResult.Success,
 		"executionResult": executionResult,

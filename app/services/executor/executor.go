@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anttihil/code-auto-grader/internal/logger"
 )
 
 // CodeExecutionService handles secure code execution in Docker containers
@@ -48,7 +50,9 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	if envMax := os.Getenv("MAX_CONCURRENT_EXECUTIONS"); envMax != "" {
 		if val, err := strconv.Atoi(envMax); err == nil && val > 0 {
 			maxConcurrent = val
-			log.Printf("Using MAX_CONCURRENT_EXECUTIONS=%d from environment", val)
+			logger.Logger.Info("using MAX_CONCURRENT_EXECUTIONS from environment",
+				slog.Int("max_concurrent", val),
+			)
 		}
 	}
 
@@ -57,7 +61,9 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	if envTimeout := os.Getenv("EXECUTION_QUEUE_TIMEOUT"); envTimeout != "" {
 		if duration, err := time.ParseDuration(envTimeout); err == nil {
 			queueTimeout = duration
-			log.Printf("Using EXECUTION_QUEUE_TIMEOUT=%s from environment", duration)
+			logger.Logger.Info("using EXECUTION_QUEUE_TIMEOUT from environment",
+				slog.Duration("timeout", duration),
+			)
 		}
 	}
 
@@ -75,12 +81,18 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	// Initialize language configurations
 	service.initializeLanguageConfigs()
 
-	log.Printf("Code execution service configured: maxConcurrent=%d, queueTimeout=%s", maxConcurrent, queueTimeout)
-	logPoolSizes := make([]string, 0, len(service.languageConfigs))
+	logger.Logger.Info("code execution service configured",
+		slog.Int("max_concurrent", maxConcurrent),
+		slog.Duration("queue_timeout", queueTimeout),
+	)
+
+	// Log pool sizes
 	for _, config := range service.languageConfigs {
-		logPoolSizes = append(logPoolSizes, fmt.Sprintf("%s=%d", config.Name, config.PoolSize))
+		logger.Logger.Info("container pool configured",
+			slog.String("language", config.Name),
+			slog.Int("pool_size", config.PoolSize),
+		)
 	}
-	log.Printf("Container pool sizes: %s", strings.Join(logPoolSizes, ", "))
 
 	// Initialize Docker images
 	if err := service.initializeDocker(); err != nil {
@@ -91,25 +103,38 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 	service.imagesVerified = true
 
 	// Create and initialize container pools
-	log.Println("Initializing container pools...")
+	logger.Logger.Info("initializing container pools",
+		slog.Int("pool_count", len(service.languageConfigs)),
+	)
 	if err := service.initializePools(); err != nil {
 		return nil, err
 	}
 
-	log.Println("All container pools initialized successfully")
+	logger.Logger.Info("all container pools initialized successfully")
 
 	// Start background maintenance goroutines
 	go service.containerRotationScheduler()
-	log.Println("Container rotation scheduler started")
+	logger.Logger.Info("container rotation scheduler started")
 
 	go service.containerHealthMonitor()
-	log.Println("Container health monitor started")
+	logger.Logger.Info("container health monitor started")
 
 	return service, nil
 }
 
-// ExecuteCode executes code based on the language
+// ExecuteCodeWithContext executes code based on the language with request context
+func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code, language string) ExecutionResult {
+	requestID := logger.GetRequestID(ctx)
+	return s.executeCodeInternal(ctx, code, language, requestID)
+}
+
+// ExecuteCode executes code based on the language (backwards compatibility)
 func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResult {
+	return s.executeCodeInternal(context.Background(), code, language, "unknown")
+}
+
+// executeCodeInternal is the internal implementation with context support
+func (s *CodeExecutionService) executeCodeInternal(ctx context.Context, code, language, requestID string) ExecutionResult {
 	if strings.TrimSpace(code) == "" {
 		return ExecutionResult{
 			Success:       false,
@@ -146,16 +171,31 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 		// Successfully acquired container
 		defer func() {
 			pool.available <- containerIdx // Release container back to pool
-			log.Printf("%s container released (%d/%d available)", pool.language, len(pool.available), pool.config.PoolSize)
+			logger.Logger.Debug("container released",
+				slog.String("request_id", requestID),
+				slog.String("language", pool.language),
+				slog.Int("pool_available", len(pool.available)),
+				slog.Int("pool_size", pool.config.PoolSize),
+			)
 		}()
-		log.Printf("%s container acquired (%d/%d available)", pool.language, len(pool.available)+1, pool.config.PoolSize)
+		logger.Logger.Debug("container acquired",
+			slog.String("request_id", requestID),
+			slog.String("language", pool.language),
+			slog.Int("pool_available", len(pool.available)+1),
+			slog.Int("pool_size", pool.config.PoolSize),
+		)
 
 		// Execute in pooled container
-		return s.executeInPooledContainer(code, pool, containerIdx)
+		return s.executeInPooledContainer(ctx, code, pool, containerIdx, requestID)
 
 	case <-time.After(s.queueTimeout):
 		// Timeout waiting for container
-		log.Printf("%s pool timeout: all %d containers busy", pool.language, pool.config.PoolSize)
+		logger.Logger.Warn("pool timeout - all containers busy",
+			slog.String("request_id", requestID),
+			slog.String("language", pool.language),
+			slog.Int("pool_size", pool.config.PoolSize),
+			slog.Duration("timeout", s.queueTimeout),
+		)
 		return ExecutionResult{
 			Success:       false,
 			Error:         "Server is at maximum capacity for this language, please try again in a few seconds",
@@ -165,7 +205,7 @@ func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResul
 }
 
 // executeInPooledContainer executes code in a pre-started pooled container
-func (s *CodeExecutionService) executeInPooledContainer(code string, pool *ContainerPool, containerIdx int) ExecutionResult {
+func (s *CodeExecutionService) executeInPooledContainer(ctx context.Context, code string, pool *ContainerPool, containerIdx int, requestID string) ExecutionResult {
 	// Check if server is shutting down
 	select {
 	case <-s.shutdownSignal:
@@ -246,8 +286,14 @@ cat > %s && %s %s 2>&1`,
 	execCount := container.ExecutionCount
 	pool.mutex.RUnlock()
 
-	log.Printf("[TIMING] %s execution in pooled container: docker_exec=%v, total=%v, container_id=%s, executions=%d",
-		pool.language, dockerDuration, overallDuration, containerID[:12], execCount)
+	logger.Logger.Info("code execution in pooled container",
+		slog.String("request_id", requestID),
+		slog.String("language", pool.language),
+		slog.Duration("docker_exec_ms", dockerDuration),
+		slog.Duration("total_ms", overallDuration),
+		slog.String("container_id", containerID[:12]),
+		slog.Int("execution_count", execCount),
+	)
 
 	// Check for timeout
 	if ctx.Err() == context.DeadlineExceeded {
@@ -294,11 +340,11 @@ func generateRandomID() string {
 
 // Cleanup stops all container pools with graceful shutdown (call on shutdown)
 func (s *CodeExecutionService) Cleanup() {
-	log.Println("Initiating graceful shutdown...")
+	logger.Logger.Info("initiating graceful shutdown")
 
 	// Signal to stop accepting new requests
 	close(s.shutdownSignal)
-	log.Println("No longer accepting new execution requests")
+	logger.Logger.Info("no longer accepting new execution requests")
 
 	// Wait for in-flight executions with timeout
 	done := make(chan struct{})
@@ -309,15 +355,19 @@ func (s *CodeExecutionService) Cleanup() {
 
 	select {
 	case <-done:
-		log.Println("All in-flight executions completed successfully")
+		logger.Logger.Info("all in-flight executions completed successfully")
 	case <-time.After(30 * time.Second):
-		log.Println("Shutdown timeout reached (30s), forcing cleanup of remaining executions")
+		logger.Logger.Warn("shutdown timeout reached, forcing cleanup",
+			slog.Duration("timeout", 30*time.Second),
+		)
 	}
 
 	// Now clean up container pools
-	log.Println("Stopping container pools...")
+	logger.Logger.Info("stopping container pools",
+		slog.Int("pool_count", len(s.pools)),
+	)
 	for _, pool := range s.pools {
 		s.stopPool(pool)
 	}
-	log.Println("Container pools cleaned up. Shutdown complete.")
+	logger.Logger.Info("container pools cleaned up - shutdown complete")
 }

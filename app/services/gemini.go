@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
+	"time"
 
+	"github.com/anttihil/code-auto-grader/internal/logger"
 	"google.golang.org/genai"
 )
 
@@ -44,11 +46,13 @@ type Feedback struct {
 func NewGeminiService() *GeminiService {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
-		log.Println("WARNING: GEMINI_API_KEY environment variable is not set")
+		logger.Logger.Warn("GEMINI_API_KEY environment variable is not set")
 		return nil
 	}
 
-	log.Printf("Initializing Gemini service with API key (length: %d characters)", len(apiKey))
+	logger.Logger.Info("initializing Gemini service",
+		slog.Int("api_key_length", len(apiKey)),
+	)
 
 	ctx := context.Background()
 	config := &genai.ClientConfig{
@@ -56,27 +60,49 @@ func NewGeminiService() *GeminiService {
 	}
 	client, err := genai.NewClient(ctx, config)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		logger.Logger.Error("failed to create Gemini client",
+			slog.String("error", err.Error()),
+		)
 		return nil
 	}
 
 	models := client.Models
 
-	log.Println("Gemini service client created successfully")
+	logger.Logger.Info("Gemini service client created successfully")
 	return &GeminiService{
 		client: client,
 		models: models,
 	}
 }
 
-// GenerateExercise generates a coding exercise using Gemini AI
+// GenerateExerciseWithContext generates a coding exercise using Gemini AI with request context
+func (s *GeminiService) GenerateExerciseWithContext(ctx context.Context, difficulty, topic, language string) (Exercise, error) {
+	requestID := logger.GetRequestID(ctx)
+	return s.generateExerciseInternal(ctx, difficulty, topic, language, requestID)
+}
+
+// GenerateExercise generates a coding exercise using Gemini AI (backwards compatibility)
 func (s *GeminiService) GenerateExercise(difficulty, topic, language string) (Exercise, error) {
+	return s.generateExerciseInternal(context.Background(), difficulty, topic, language, "unknown")
+}
+
+// generateExerciseInternal is the internal implementation with context support
+func (s *GeminiService) generateExerciseInternal(ctx context.Context, difficulty, topic, language, requestID string) (Exercise, error) {
 	if s == nil {
-		log.Println("ERROR: GenerateExercise called but GeminiService is nil")
+		logger.Logger.Error("GenerateExercise called but GeminiService is nil",
+			slog.String("request_id", requestID),
+		)
 		return Exercise{}, fmt.Errorf("Gemini service not initialized (missing API key)")
 	}
 
-	log.Printf("GenerateExercise called - Difficulty: %s, Topic: %s, Language: %s", difficulty, topic, language)
+	start := time.Now()
+	aiLogger := logger.WithAIContext(ctx, requestID, "generate_exercise")
+
+	aiLogger.Info("generating exercise",
+		slog.String("difficulty", difficulty),
+		slog.String("topic", topic),
+		slog.String("language", language),
+	)
 
 	prompt := fmt.Sprintf(`Generate a coding exercise with the following requirements:
 - Difficulty: %s
@@ -104,8 +130,6 @@ Be creative and ensure the exercise is appropriate for the specified difficulty 
 			temperature = 0.7
 	}
 
-	ctx := context.Background()
-
 	// Define response schema for structured output
 	responseSchema := &genai.Schema{
 		Type: genai.TypeObject,
@@ -132,70 +156,102 @@ Be creative and ensure the exercise is appropriate for the specified difficulty 
 		Required: []string{"title", "description", "difficulty", "language", "starterCode", "hints", "expectedOutput", "testCases"},
 	}
 
-	log.Println("Calling Gemini API for exercise generation...")
+	aiLogger.Debug("calling Gemini API for exercise generation")
 	resp, err := s.models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
 		MaxOutputTokens:  20000,
 		Temperature:      &temperature,
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   responseSchema,
 	})
+	latency := time.Since(start)
+
 	if err != nil {
-		log.Printf("ERROR: Gemini API call failed for exercise generation: %v", err)
+		aiLogger.Error("Gemini API call failed for exercise generation",
+			slog.Duration("latency_ms", latency),
+			slog.String("error", err.Error()),
+		)
 		return Exercise{}, fmt.Errorf("failed to generate exercise: %w", err)
 	}
 
-	log.Println("Gemini API call successful, checking response...")
+	aiLogger.Info("Gemini API call successful",
+		slog.Duration("latency_ms", latency),
+	)
 
 	// Check if response is nil or has no candidates
 	if resp == nil {
-		log.Println("ERROR: Received nil response from Gemini API")
+		aiLogger.Error("received nil response from Gemini API")
 		return Exercise{}, fmt.Errorf("received nil response from Gemini API")
 	}
 
-	// Log response details for debugging
-	log.Printf("Response candidates count: %d", len(resp.Candidates))
+	// Check response details
 	if len(resp.Candidates) == 0 {
-		log.Println("ERROR: No candidates in response")
+		aiLogger.Warn("no candidates in Gemini response",
+			slog.Any("prompt_feedback", resp.PromptFeedback),
+		)
 		return Exercise{}, fmt.Errorf("no candidates in Gemini response - content may have been blocked or filtered")
 	}
 
 	// Check for content filtering or blocking
 	if resp.Candidates[0].FinishReason != "" {
-		log.Printf("Response finish reason: %s", resp.Candidates[0].FinishReason)
-	}
-	if resp.PromptFeedback != nil {
-		log.Printf("Prompt feedback: %+v", resp.PromptFeedback)
+		aiLogger.Debug("response finish reason",
+			slog.String("finish_reason", string(resp.Candidates[0].FinishReason)),
+		)
 	}
 
 	// Extract and parse JSON from response
 	text := resp.Text()
-	log.Printf("Response text length: %d characters", len(text))
 
 	if text == "" {
-		log.Println("ERROR: Empty response text from Gemini API")
-		log.Printf("Full response structure: %+v", resp)
+		aiLogger.Error("empty response text from Gemini API")
 		return Exercise{}, fmt.Errorf("empty response text from Gemini API")
 	}
 
+	aiLogger.Debug("received response",
+		slog.Int("response_length", len(text)),
+	)
+
 	var exercise Exercise
 	if err := json.Unmarshal([]byte(text), &exercise); err != nil {
-		log.Printf("ERROR: Failed to parse exercise JSON: %v. Response text: %s", err, text)
+		aiLogger.Error("failed to parse exercise JSON",
+			slog.String("error", err.Error()),
+		)
 		return Exercise{}, fmt.Errorf("failed to parse exercise JSON: %w. %s", err, text)
 	}
 
-	log.Printf("GenerateExercise completed successfully. Title: %s", exercise.Title)
+	aiLogger.Info("exercise generated successfully",
+		slog.String("title", exercise.Title),
+	)
 	return exercise, nil
 }
 
-// CheckSubmission checks submitted code using Gemini AI
+// CheckSubmissionWithContext checks submitted code using Gemini AI with request context
+func (s *GeminiService) CheckSubmissionWithContext(ctx context.Context, exercise, submittedCode, language string) (Feedback, error) {
+	requestID := logger.GetRequestID(ctx)
+	return s.checkSubmissionInternal(ctx, exercise, submittedCode, language, requestID)
+}
+
+// CheckSubmission checks submitted code using Gemini AI (backwards compatibility)
 func (s *GeminiService) CheckSubmission(exercise, submittedCode, language string) (Feedback, error) {
+	return s.checkSubmissionInternal(context.Background(), exercise, submittedCode, language, "unknown")
+}
+
+// checkSubmissionInternal is the internal implementation with context support
+func (s *GeminiService) checkSubmissionInternal(ctx context.Context, exercise, submittedCode, language, requestID string) (Feedback, error) {
 	if s == nil {
-		log.Println("ERROR: CheckSubmission called but GeminiService is nil")
+		logger.Logger.Error("CheckSubmission called but GeminiService is nil",
+			slog.String("request_id", requestID),
+		)
 		return Feedback{}, fmt.Errorf("Gemini service not initialized (missing API key)")
 	}
 
-	log.Printf("CheckSubmission called for language: %s, exercise length: %d, code length: %d",
-		language, len(exercise), len(submittedCode))
+	start := time.Now()
+	aiLogger := logger.WithAIContext(ctx, requestID, "check_submission")
+
+	aiLogger.Info("checking submission",
+		slog.String("language", language),
+		slog.Int("exercise_length", len(exercise)),
+		slog.Int("code_length", len(submittedCode)),
+	)
 
 	prompt := fmt.Sprintf(`You are a code reviewer and teacher. Review the following code submission:
 
@@ -220,8 +276,6 @@ Provide a thorough review that includes:
 Be constructive, educational, and encouraging in your feedback.`,
 		exercise, language, "```"+language+"\n", submittedCode, "\n```")
 
-	ctx := context.Background()
-
 	// Define response schema for structured output
 	responseSchema := &genai.Schema{
 		Type: genai.TypeObject,
@@ -238,59 +292,74 @@ Be constructive, educational, and encouraging in your feedback.`,
 		Required: []string{"passed", "score", "feedback", "strengths", "improvements", "correctness", "codeQuality", "suggestions"},
 	}
 
-	log.Println("Calling Gemini API for code submission feedback...")
+	aiLogger.Debug("calling Gemini API for code submission feedback")
 	resp, err := s.models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), &genai.GenerateContentConfig{
 		MaxOutputTokens:  3000,
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   responseSchema,
 	})
+	latency := time.Since(start)
+
 	if err != nil {
-		log.Printf("ERROR: Gemini API call failed: %v", err)
+		aiLogger.Error("Gemini API call failed",
+			slog.Duration("latency_ms", latency),
+			slog.String("error", err.Error()),
+		)
 		return Feedback{}, fmt.Errorf("failed to check submission: %w", err)
 	}
 
-	log.Println("Gemini API call successful, checking response...")
+	aiLogger.Info("Gemini API call successful",
+		slog.Duration("latency_ms", latency),
+	)
 
 	// Check if response is nil or has no candidates
 	if resp == nil {
-		log.Println("ERROR: Received nil response from Gemini API")
+		aiLogger.Error("received nil response from Gemini API")
 		return Feedback{}, fmt.Errorf("received nil response from Gemini API")
 	}
 
-	// Log response details for debugging
-	log.Printf("Response candidates count: %d", len(resp.Candidates))
+	// Check response details
 	if len(resp.Candidates) == 0 {
-		log.Println("ERROR: No candidates in response")
+		aiLogger.Warn("no candidates in Gemini response",
+			slog.Any("prompt_feedback", resp.PromptFeedback),
+		)
 		return Feedback{}, fmt.Errorf("no candidates in Gemini response - content may have been blocked or filtered")
 	}
 
 	// Check for content filtering or blocking
 	if resp.Candidates[0].FinishReason != "" {
-		log.Printf("Response finish reason: %s", resp.Candidates[0].FinishReason)
-		if resp.Candidates[0].FinishReason == "MAX_TOKENS" {
-			log.Println("WARNING: Response was truncated due to MAX_TOKENS limit. Consider increasing MaxOutputTokens.")
+		finishReason := string(resp.Candidates[0].FinishReason)
+		aiLogger.Debug("response finish reason",
+			slog.String("finish_reason", finishReason),
+		)
+		if finishReason == "MAX_TOKENS" {
+			aiLogger.Warn("response truncated due to MAX_TOKENS limit")
 		}
-	}
-	if resp.PromptFeedback != nil {
-		log.Printf("Prompt feedback: %+v", resp.PromptFeedback)
 	}
 
 	// Extract and parse JSON from response
 	text := resp.Text()
-	log.Printf("Response text length: %d characters", len(text))
 
 	if text == "" {
-		log.Println("ERROR: Empty response text from Gemini API")
-		log.Printf("Full response structure: %+v", resp)
+		aiLogger.Error("empty response text from Gemini API")
 		return Feedback{}, fmt.Errorf("empty response text from Gemini API")
 	}
 
+	aiLogger.Debug("received response",
+		slog.Int("response_length", len(text)),
+	)
+
 	var feedback Feedback
 	if err := json.Unmarshal([]byte(text), &feedback); err != nil {
-		log.Printf("ERROR: Failed to parse Gemini response JSON: %v. Response text: %s", err, text)
+		aiLogger.Error("failed to parse feedback JSON",
+			slog.String("error", err.Error()),
+		)
 		return Feedback{}, fmt.Errorf("failed to parse feedback JSON: %w", err)
 	}
 
-	log.Printf("CheckSubmission completed successfully. Score: %d, Passed: %v", feedback.Score, feedback.Passed)
+	aiLogger.Info("submission checked successfully",
+		slog.Bool("passed", feedback.Passed),
+		slog.Int("score", feedback.Score),
+	)
 	return feedback, nil
 }

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/anttihil/code-auto-grader/internal/logger"
 )
 
 // initializeDocker builds Docker images for code execution
@@ -77,7 +79,10 @@ func (s *CodeExecutionService) healthCheckContainer(containerID string, config *
 		return fmt.Errorf("health check command failed: %v, output: %s", err, string(output))
 	}
 
-	log.Printf("Health check passed for %s container: %s", config.Name, containerID[:12])
+	logger.Logger.Debug("health check passed",
+		slog.String("language", config.Name),
+		slog.String("container_id", containerID[:12]),
+	)
 	return nil
 }
 
@@ -126,7 +131,12 @@ func (s *CodeExecutionService) startContainer(config *LanguageConfig) (string, e
 		containerID = strings.TrimSpace(string(idOutput))
 	}
 
-	log.Printf("Started %s container: %s (memory=%dMB, cpus=%s)", config.Name, containerID[:12], config.MemoryMB, config.CPUs)
+	logger.Logger.Info("container started",
+		slog.String("language", config.Name),
+		slog.String("container_id", containerID[:12]),
+		slog.Int("memory_mb", config.MemoryMB),
+		slog.String("cpus", config.CPUs),
+	)
 	return containerID, nil
 }
 
@@ -138,16 +148,24 @@ func (s *CodeExecutionService) stopContainer(containerID string) error {
 	// Stop container
 	stopCmd := exec.CommandContext(ctx, "docker", "stop", containerID)
 	if err := stopCmd.Run(); err != nil {
-		log.Printf("Warning: failed to stop container %s: %v", containerID[:12], err)
+		logger.Logger.Warn("failed to stop container",
+			slog.String("container_id", containerID[:12]),
+			slog.String("error", err.Error()),
+		)
 	}
 
 	// Remove container
 	rmCmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerID)
 	if err := rmCmd.Run(); err != nil {
-		log.Printf("Warning: failed to remove container %s: %v", containerID[:12], err)
+		logger.Logger.Warn("failed to remove container",
+			slog.String("container_id", containerID[:12]),
+			slog.String("error", err.Error()),
+		)
 		return err
 	}
 
-	log.Printf("Stopped and removed container: %s", containerID[:12])
+	logger.Logger.Info("stopped and removed container",
+		slog.String("container_id", containerID[:12]),
+	)
 	return nil
 }
