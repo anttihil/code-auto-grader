@@ -1,0 +1,58 @@
+{
+  "nodes": [
+    {
+      "id": "20000000-0000-0000-0000-000000000001",
+      "tech_tree_id": "10000000-0000-0000-0000-000000000001",
+      "name": "Rust Basics",
+      "slug": "rust-basics",
+      "description": "Master Rust fundamentals: variables, mutability, functions, and control flow. Learn the syntax and basic patterns that form the foundation of Rust programming.",
+      "learning_objectives": [
+        "Understand Rust variable binding and mutability",
+        "Write functions with type annotations",
+        "Use control flow constructs (if/else, match)",
+        "Apply pattern matching to simple types"
+      ],
+      "order_index": 1,
+      "estimated_minutes": 90,
+      "prerequisites": []
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000002",
+      "tech_tree_id": "10000000-0000-0000-0000-000000000001",
+      "name": "Ownership & Borrowing",
+      "slug": "ownership-borrowing",
+      "description": "Dive into Rust's unique ownership system. Understand memory management without garbage collection through ownership, borrowing, and lifetimes.",
+      "learning_objectives": [
+        "Understand Rust's ownership rules",
+        "Recognize when ownership moves occur",
+        "Use references to borrow data",
+        "Apply borrowing rules (mutable XOR immutable)",
+        "Prevent data races at compile time"
+      ],
+      "order_index": 2,
+      "estimated_minutes": 120,
+      "prerequisites": [
+        "20000000-0000-0000-0000-000000000001"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000003",
+      "tech_tree_id": "10000000-0000-0000-0000-000000000001",
+      "name": "Structs & Enums",
+      "slug": "structs-enums",
+      "description": "Create custom data types with structs and enums. Learn how to model domain concepts, implement methods, and use pattern matching effectively.",
+      "learning_objectives": [
+        "Define custom structs with named fields",
+        "Implement methods and associated functions",
+        "Create enums with multiple variants",
+        "Use pattern matching with match expressions",
+        "Work with Option<T> for nullable values"
+      ],
+      "order_index": 3,
+      "estimated_minutes": 105,
+      "prerequisites": [
+        "20000000-0000-0000-0000-000000000002"
+      ]
+    }
+  ]
+}

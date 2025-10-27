@@ -1,0 +1,11 @@
+{
+  "users": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "username": "dogfood_user",
+      "email": "antti@example.com",
+      "display_name": "Antti (Dogfooding)",
+      "password_hash": null
+    }
+  ]
+}

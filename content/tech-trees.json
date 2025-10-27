@@ -1,0 +1,14 @@
+{
+  "tech_trees": [
+    {
+      "id": "10000000-0000-0000-0000-000000000001",
+      "name": "Rust Fundamentals",
+      "slug": "rust-fundamentals",
+      "description": "Learn Rust from basics through ownership, structs, and enums. Build a solid foundation in Rust's unique memory management and type system.",
+      "language": "rust",
+      "difficulty_level": "beginner",
+      "estimated_hours": 5,
+      "is_published": true
+    }
+  ]
+}
