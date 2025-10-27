@@ -49,7 +49,7 @@ Instead of user interviews, validated through **personal use as primary user**:
   - Submissions (code, execution results, AI feedback, timestamps)
 - [ ] Migration scripts (using `golang-migrate`)
 - [ ] Go models/structs matching schema
-- [ ] Basic CRUD operations with `sqlx`
+- [ ] Basic CRUD operations with `pgx`
 
 **Technical Decisions:**
 - Single hard-coded user (skip auth for now)
@@ -166,7 +166,7 @@ Instead of user interviews, validated through **personal use as primary user**:
 - [ ] Basic CRUD operations for all entities
 
 **Technical Decisions:**
-- Use `sqlx` for Go database access (simplicity over ORM)
+- Use `pgx` for Go database access (PostgreSQL-native driver with excellent performance)
 - Store exercise content as JSONB (flexible schema for different types)
 - Index on `user_id`, `node_id`, `exercise_id` for query performance
 
