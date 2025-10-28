@@ -15,26 +15,26 @@ import (
 
 func main() {
 	// Parse flags
-	seedUsers := flag.Bool("users", false, "Seed users only")
-	seedTrees := flag.Bool("trees", false, "Seed tech trees only")
-	seedNodes := flag.Bool("nodes", false, "Seed nodes only")
-	seedExercises := flag.Bool("exercises", false, "Seed exercises only")
-	seedAll := flag.Bool("all", false, "Seed all data")
+	shouldSeedUsers := flag.Bool("users", false, "Seed users only")
+	shouldSeedTrees := flag.Bool("trees", false, "Seed tech trees only")
+	shouldSeedNodes := flag.Bool("nodes", false, "Seed nodes only")
+	shouldSeedExercises := flag.Bool("exercises", false, "Seed exercises only")
+	shouldSeedAll := flag.Bool("all", false, "Seed all data")
 	force := flag.Bool("force", false, "Force overwrite existing data (delete and re-insert)")
 	contentDir := flag.String("dir", "../../content", "Path to content directory")
 
 	flag.Parse()
 
 	// Default to seeding everything if no specific flags
-	if !*seedUsers && !*seedTrees && !*seedNodes && !*seedExercises {
-		*seedAll = true
+	if !*shouldSeedUsers && !*shouldSeedTrees && !*shouldSeedNodes && !*shouldSeedExercises {
+		*shouldSeedAll = true
 	}
 
-	if *seedAll {
-		*seedUsers = true
-		*seedTrees = true
-		*seedNodes = true
-		*seedExercises = true
+	if *shouldSeedAll {
+		*shouldSeedUsers = true
+		*shouldSeedTrees = true
+		*shouldSeedNodes = true
+		*shouldSeedExercises = true
 	}
 
 	// Load environment variables
@@ -82,7 +82,7 @@ func main() {
 		len(seedData.Users), len(seedData.TechTrees), len(seedData.Nodes), len(exercises))
 
 	// Seed in order (respecting foreign key constraints)
-	if *seedUsers {
+	if *shouldSeedUsers {
 		fmt.Println("\n📝 Seeding users...")
 		if err := seedUsers(ctx, pool, seedData.Users, *force); err != nil {
 			log.Fatalf("Failed to seed users: %v", err)
@@ -90,7 +90,7 @@ func main() {
 		fmt.Printf("✓ Seeded %d users\n", len(seedData.Users))
 	}
 
-	if *seedTrees {
+	if *shouldSeedTrees {
 		fmt.Println("\n🌳 Seeding tech trees...")
 		if err := seedTechTrees(ctx, pool, seedData.TechTrees, *force); err != nil {
 			log.Fatalf("Failed to seed tech trees: %v", err)
@@ -98,7 +98,7 @@ func main() {
 		fmt.Printf("✓ Seeded %d tech trees\n", len(seedData.TechTrees))
 	}
 
-	if *seedNodes {
+	if *shouldSeedNodes {
 		fmt.Println("\n📚 Seeding nodes...")
 		if err := seedNodesWithPrerequisites(ctx, pool, seedData.Nodes, *force); err != nil {
 			log.Fatalf("Failed to seed nodes: %v", err)
@@ -106,7 +106,7 @@ func main() {
 		fmt.Printf("✓ Seeded %d nodes\n", len(seedData.Nodes))
 	}
 
-	if *seedExercises {
+	if *shouldSeedExercises {
 		fmt.Println("\n💻 Seeding exercises...")
 		if err := seedExercises(ctx, pool, exercises, *force); err != nil {
 			log.Fatalf("Failed to seed exercises: %v", err)

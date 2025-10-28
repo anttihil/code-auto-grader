@@ -14,10 +14,12 @@ Code Auto-Grader is an LLM-powered educational platform for generating coding ex
 
 **Backend (`/app` directory):**
 - Go HTTP server using Echo framework
+- PostgreSQL database with pgx driver
 - Google Gemini AI integration for exercise generation and code evaluation
 - Sandboxed code execution (JavaScript, Python, Rust) via Docker containers
 - Security middleware (rate limiting, CORS, security headers)
 - Structured logging with request ID tracking
+- Repository pattern for clean data access
 
 **Frontend (`/web` directory):**
 - SolidJS with TypeScript and Vite
@@ -25,7 +27,7 @@ Code Auto-Grader is an LLM-powered educational platform for generating coding ex
 - Single-page application (all logic in `App.tsx`)
 - Responsive CSS design with gradients
 
-**No Database Yet**: All data is ephemeral (sessions, no persistence). Database integration planned for MVP Phase 1.
+**Database**: PostgreSQL with complete schema for users, tech trees, nodes, exercises, submissions, and progress tracking. See `app/database/README.md` for setup instructions.
 
 ## Code Execution System
 
@@ -69,17 +71,43 @@ app/
 │       ├── pool.go            # Container pool management
 │       ├── docker.go          # Docker container operations
 │       └── maintenance.go     # Health checks and rotation
+├── database/                   # Database connection and utilities
+│   ├── database.go            # Connection pool, migrations
+│   ├── test_helpers.go        # Test database setup
+│   └── README.md              # Database setup guide
+├── repository/                 # Data access layer (Repository pattern)
+│   ├── repository.go          # Repository interfaces
+│   ├── exercise_repo.go       # Exercise CRUD operations
+│   ├── submission_repo.go     # Submission CRUD operations
+│   ├── tech_tree_repo.go      # Tech tree operations
+│   ├── node_repo.go           # Node operations
+│   ├── user_repo.go           # User operations
+│   └── user_progress_repo.go  # Progress tracking
+├── models/
+│   └── models.go              # Database models and structs
+├── migrations/                 # Database schema migrations
+│   ├── 000001_init_schema.up.sql    # Create tables
+│   └── 000001_init_schema.down.sql  # Drop tables
+├── cmd/
+│   └── seed/
+│       └── main.go            # Database seeding utility
+├── internal/
+│   ├── logger/
+│   │   └── logger.go          # Logger initialization
+│   └── content/               # Content loading and parsing
+│       ├── loader.go          # Load exercises from files
+│       ├── parser.go          # Parse markdown to models
+│       └── types.go           # Content data structures
 ├── middleware/
 │   ├── logger.go              # Structured logging middleware
 │   ├── rate_limit.go          # Rate limiting (100 req/15min)
 │   └── request_id.go          # Request ID generation
-├── internal/
-│   └── logger/
-│       └── logger.go          # Logger initialization
-└── docker/
-    ├── javascript.Dockerfile  # Node.js execution environment
-    ├── python.Dockerfile      # Python execution environment
-    └── rust.Dockerfile        # Rust execution environment
+├── docker/
+│   ├── javascript.Dockerfile  # Node.js execution environment
+│   ├── python.Dockerfile      # Python execution environment
+│   └── rust.Dockerfile        # Rust execution environment
+├── Makefile                    # Database and development commands
+└── integration_test.go        # Integration tests
 ```
 
 **Frontend:**
@@ -111,18 +139,42 @@ npm run build               # Production build (outputs to dist/)
 npm run typecheck           # TypeScript type checking
 ```
 
+**Database Commands (from `/app` directory):**
+```bash
+make install-tools           # Install migrate CLI and other dev tools
+make docker-db-up            # Start PostgreSQL in Docker
+make migrate-up              # Run database migrations
+make db-seed                 # Seed database with content
+make db-reset                # Drop, migrate, and seed (fresh start)
+make test                    # Run all tests
+make help                    # Show all available commands
+```
+
 **Full Development Setup:**
-1. Set up backend: `cd app && cp .env.example .env` (add GEMINI_API_KEY)
-2. Build Docker images (optional, auto-built on first run):
+1. Set up backend: `cd app && cp .env.example .env` (add GEMINI_API_KEY and DATABASE_URL)
+2. Install development tools:
    ```bash
    cd app
+   make install-tools  # Installs golang-migrate CLI
+   ```
+3. Start PostgreSQL database:
+   ```bash
+   make docker-db-up  # Or use your local PostgreSQL
+   ```
+4. Set up database:
+   ```bash
+   make migrate-up    # Run migrations
+   make db-seed       # Seed with Rust exercises
+   ```
+5. Build Docker images for code execution (optional, auto-built on first run):
+   ```bash
    docker build -f docker/javascript.Dockerfile -t code-grader-javascript .
    docker build -f docker/python.Dockerfile -t code-grader-python .
    docker build -f docker/rust.Dockerfile -t code-grader-rust .
    ```
-3. Run backend: `cd app && go run main.go`
-4. Run frontend: `cd web && npm run dev` (in separate terminal)
-5. Open browser: http://localhost:5173
+6. Run backend: `go run main.go`
+7. Run frontend: `cd ../web && npm run dev` (in separate terminal)
+8. Open browser: http://localhost:5173
 
 ## API Endpoints
 
@@ -149,15 +201,26 @@ npm run typecheck           # TypeScript type checking
 - Go 1.20+ (project uses 1.24.7)
 - Node.js and npm
 - Docker (required for code execution)
+- PostgreSQL 14+ (or use Docker: `make docker-db-up`)
+- golang-migrate CLI tool (install: `make install-tools`)
 - Gemini API key (get from https://aistudio.google.com/app/apikey)
 
 **Environment Variables (app/.env):**
 ```bash
+# AI API
 GEMINI_API_KEY=your_api_key_here
+
+# Server Configuration
 PORT=5000                           # Optional, defaults to 5000
 ENVIRONMENT=development             # "development" or "production"
 
-# Optional: Override pool sizes (defaults shown)
+# Database Configuration
+DATABASE_URL=postgres://code_grader:dev_password@localhost:5432/code_auto_grader?sslmode=disable
+TEST_DATABASE_URL=postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable
+DB_AUTO_MIGRATE=true                # Run migrations on startup (optional)
+DB_MIGRATIONS_PATH=file://migrations  # Path to migration files (optional)
+
+# Code Execution Pool Sizes (optional, defaults shown)
 JS_POOL_SIZE=3
 PYTHON_POOL_SIZE=3
 RUST_POOL_SIZE=2
@@ -182,6 +245,54 @@ RUST_POOL_SIZE=2
 - Docker: Required on production host for code execution
 - CDN: Optional for frontend assets (Cloudflare, CloudFront)
 
+## Database Architecture
+
+**Schema Overview:**
+
+The database uses PostgreSQL with a complete schema for the learning platform:
+
+**Core Tables:**
+- **users** - User accounts (UUID, username, email, display_name)
+- **tech_trees** - Learning paths (e.g., "Rust Fundamentals")
+- **nodes** - Topics within tech trees with DAG structure via `node_prerequisites`
+- **exercises** - Individual coding exercises with JSONB content
+- **submissions** - User submission history (code, execution results, AI feedback, scores)
+- **user_progress** - Progress tracking at node level (mastery scores, completion status)
+
+**Key Features:**
+- Automatic `updated_at` triggers on all tables
+- JSONB storage for flexible exercise content (starter code, test cases, hints, rubrics)
+- DAG (directed acyclic graph) for node prerequisites
+- Mastery-based progression (80% threshold by default)
+- Submission scoring: 60% test results + 40% AI evaluation
+
+**Repository Pattern:**
+
+Clean data access layer with interfaces and implementations:
+- `ExerciseRepository` - CRUD operations for exercises
+- `SubmissionRepository` - Save and retrieve submissions with history
+- `TechTreeRepository` - Tech tree management
+- `NodeRepository` - Node operations and prerequisite queries
+- `UserRepository` - User account operations
+- `UserProgressRepository` - Progress tracking and mastery calculations
+
+**Migrations:**
+
+Using golang-migrate for schema versioning:
+- Migration files in `app/migrations/`
+- Run with `make migrate-up` / `make migrate-down`
+- Auto-migration on app startup (configurable via `DB_AUTO_MIGRATE`)
+
+**Content Seeding:**
+
+Structured content system for exercises:
+- Exercise files: Markdown with JSON frontmatter
+- Content loader: Parses markdown sections (starter code, tests, hints)
+- Seed command: `make db-seed` or `go run cmd/seed/main.go`
+- 9 complete Rust exercises included (Nodes 1-3)
+
+See `app/database/README.md` for detailed database setup and usage instructions.
+
 ## TypeScript Configuration
 
 The frontend uses strict TypeScript with:
@@ -194,10 +305,13 @@ The frontend uses strict TypeScript with:
 
 The following are **not yet implemented** but planned for future development:
 
-**Database Layer:**
-- PostgreSQL for user progress, tech trees, exercises
-- Models: `TechTree`, `Node`, `Exercise`, `Submission`, `UserProgress`
-- Migration system for schema evolution
+**Database Layer (✅ COMPLETED):**
+- ✅ PostgreSQL schema with all tables
+- ✅ Models: `TechTree`, `Node`, `Exercise`, `Submission`, `UserProgress`
+- ✅ Migration system using golang-migrate
+- ✅ Repository pattern for data access
+- ✅ Content seeding system
+- 🔄 **In Progress**: Integrate repositories with API handlers
 
 **Exercise Types:**
 - Coding problems (currently supported)
