@@ -2,14 +2,18 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/anttihil/code-auto-grader/internal/logger"
+	"github.com/anttihil/code-auto-grader/models"
 	"github.com/anttihil/code-auto-grader/repository"
 	"github.com/anttihil/code-auto-grader/services"
 	"github.com/anttihil/code-auto-grader/services/executor"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -644,7 +648,7 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 
 // SubmitToExercise submits code to a specific exercise with full evaluation and scoring
 func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
-	_, requestID := getRequestContext(c)
+	ctx, requestID := getRequestContext(c)
 
 	exerciseID := c.Param("exerciseId")
 	// TODO: Get real user ID from auth context
@@ -682,17 +686,481 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 		})
 	}
 
-	// TODO: Implement full exercise submission with:
-	// 1. Fetch exercise and run test cases
-	// 2. Execute code and compare results
-	// 3. Get AI feedback based on exercise rubric
-	// 4. Calculate scores (60% tests + 40% AI)
-	// 5. Save submission to database
-	// 6. Update user progress and mastery tracking
+	// Set default language if not provided
+	if req.Language == "" {
+		req.Language = "javascript"
+	}
 
-	return c.JSON(http.StatusNotImplemented, map[string]interface{}{
-		"success": false,
-		"error":   "Submission with full evaluation not yet implemented",
-		"message": "This endpoint will support test case execution, AI evaluation, and mastery tracking",
+	// 1. Fetch exercise from database
+	exercise, err := h.exerciseRepo.GetByID(ctx, exerciseID)
+	if err != nil {
+		logger.Logger.Error("failed to fetch exercise",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
+		return c.JSON(http.StatusNotFound, map[string]interface{}{
+			"success": false,
+			"error":   "Exercise not found",
+		})
+	}
+
+	logger.Logger.Info("exercise fetched for submission",
+		slog.String("request_id", requestID),
+		slog.String("exercise_title", exercise.Title),
+		slog.Int("test_case_count", len(exercise.Content.TestCases)),
+	)
+
+	// 2. Run test cases
+	testResults, executionOutput, executionError, executionTimeMs := h.runTestCases(ctx, req.Code, req.Language, exercise.Content.TestCases, requestID)
+
+	// Calculate test score (0-100)
+	testScore := 0
+	if testResults.TotalTests > 0 {
+		testScore = (testResults.PassedTests * 100) / testResults.TotalTests
+	}
+
+	logger.Logger.Info("test cases executed",
+		slog.String("request_id", requestID),
+		slog.Int("passed", testResults.PassedTests),
+		slog.Int("total", testResults.TotalTests),
+		slog.Int("test_score", testScore),
+	)
+
+	// 3. Get AI feedback using exercise's AI evaluation prompt
+	startAI := time.Now()
+	aiFeedback, aiScore, err := h.evaluateWithAI(ctx, exercise, req.Code, req.Language, testResults, requestID)
+	if err != nil {
+		logger.Logger.Warn("AI evaluation failed, continuing without it",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
+		// Continue without AI feedback rather than failing the whole submission
+		aiFeedback = "AI evaluation temporarily unavailable"
+		aiScore = 0
+	}
+	aiEvaluationTimeMs := int(time.Since(startAI).Milliseconds())
+
+	logger.Logger.Info("AI evaluation completed",
+		slog.String("request_id", requestID),
+		slog.Int("ai_score", aiScore),
+		slog.Int("duration_ms", aiEvaluationTimeMs),
+	)
+
+	// 4. Calculate total score using grading rubric weights
+	testWeight := exercise.Content.GradingRubric.TestWeight
+	aiWeight := exercise.Content.GradingRubric.AIWeight
+
+	// Normalize weights if they don't sum to 100
+	totalWeight := testWeight + aiWeight
+	if totalWeight == 0 {
+		totalWeight = 100
+		testWeight = 60
+		aiWeight = 40
+	}
+
+	totalScore := (testScore*testWeight + aiScore*aiWeight) / totalWeight
+
+	logger.Logger.Info("final score calculated",
+		slog.String("request_id", requestID),
+		slog.Int("test_score", testScore),
+		slog.Int("ai_score", aiScore),
+		slog.Int("total_score", totalScore),
+		slog.Int("test_weight", testWeight),
+		slog.Int("ai_weight", aiWeight),
+	)
+
+	// 5. Save submission to database
+	submission, err := h.saveSubmission(ctx, userID, exerciseID, req.Code, req.Language,
+		&executionOutput, executionError, &executionTimeMs,
+		testResults, &aiFeedback, &aiScore, &aiEvaluationTimeMs,
+		&testScore, &totalScore, requestID)
+	if err != nil {
+		logger.Logger.Error("failed to save submission",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Failed to save submission",
+		})
+	}
+
+	logger.Logger.Info("submission saved successfully",
+		slog.String("request_id", requestID),
+		slog.String("submission_id", submission.ID.String()),
+		slog.Int("attempt_number", submission.AttemptNumber),
+	)
+
+	// 6. Update user progress and mastery tracking
+	if err := h.updateUserProgress(ctx, userID, exercise.NodeID.String(), totalScore, requestID); err != nil {
+		logger.Logger.Warn("failed to update user progress",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
+		// Don't fail the submission if progress update fails
+	}
+
+	// Return submission result
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success":          true,
+		"submission_id":    submission.ID,
+		"execution_output": executionOutput,
+		"execution_error":  executionError,
+		"test_results":     testResults,
+		"ai_feedback":      aiFeedback,
+		"test_score":       testScore,
+		"ai_score":         aiScore,
+		"total_score":      totalScore,
+		"attempt_number":   submission.AttemptNumber,
 	})
+}
+
+// ============================================
+// Helper Methods for Submission Processing
+// ============================================
+
+// runTestCases executes all test cases and returns results
+func (h *SubmissionHandler) runTestCases(ctx context.Context, submittedCode, language string, testCases []models.TestCase, requestID string) (*models.TestResults, string, *string, int) {
+	results := &models.TestResults{
+		TotalTests:  len(testCases),
+		PassedTests: 0,
+		FailedTests: 0,
+		Results:     make([]models.TestResult, 0, len(testCases)),
+	}
+
+	var combinedOutput strings.Builder
+	var totalExecutionTime int
+	var lastError *string
+
+	for _, testCase := range testCases {
+		// Combine submitted code with test code
+		codeWithTest := submittedCode + "\n\n" + testCase.Code
+
+		logger.Logger.Debug("running test case",
+			slog.String("request_id", requestID),
+			slog.String("test_name", testCase.Name),
+		)
+
+		// Execute the combined code
+		startTime := time.Now()
+		execResult := h.codeExecutor.ExecuteCodeWithContext(ctx, codeWithTest, language)
+		duration := int(time.Since(startTime).Milliseconds())
+		totalExecutionTime += duration
+
+		testResult := models.TestResult{
+			Name:       testCase.Name,
+			DurationMs: &duration,
+		}
+
+		if execResult.Success {
+			testResult.Status = "passed"
+			results.PassedTests++
+			combinedOutput.WriteString(fmt.Sprintf("✓ %s: PASSED\n", testCase.Name))
+			if execResult.Output != "" {
+				combinedOutput.WriteString(fmt.Sprintf("  Output: %s\n", execResult.Output))
+			}
+		} else {
+			testResult.Status = "failed"
+			results.FailedTests++
+			errorMsg := execResult.Error
+			testResult.Error = &errorMsg
+			lastError = &errorMsg
+			combinedOutput.WriteString(fmt.Sprintf("✗ %s: FAILED\n", testCase.Name))
+			combinedOutput.WriteString(fmt.Sprintf("  Error: %s\n", errorMsg))
+		}
+
+		results.Results = append(results.Results, testResult)
+	}
+
+	output := combinedOutput.String()
+	return results, output, lastError, totalExecutionTime
+}
+
+// evaluateWithAI gets AI feedback and score for the submission
+func (h *SubmissionHandler) evaluateWithAI(ctx context.Context, exercise *models.Exercise, code, language string, testResults *models.TestResults, requestID string) (string, int, error) {
+	// Build evaluation prompt using exercise's AI evaluation prompt
+	prompt := exercise.Content.AIEvaluationPrompt
+
+	// If no custom prompt, use a default one
+	if prompt == "" {
+		prompt = buildDefaultAIPrompt(exercise, code, language, testResults)
+	} else {
+		// Replace placeholders in the custom prompt
+		prompt = replacePlaceholders(prompt, exercise, code, language, testResults)
+	}
+
+	logger.Logger.Debug("sending code to AI for evaluation",
+		slog.String("request_id", requestID),
+		slog.Int("prompt_length", len(prompt)),
+	)
+
+	// Get AI feedback (returns Feedback struct)
+	feedbackStruct, err := h.gemini.CheckSubmissionWithContext(ctx, prompt, code, language)
+	if err != nil {
+		return "", 0, fmt.Errorf("AI evaluation failed: %w", err)
+	}
+
+	// Use the score from the AI feedback, or derive one if not provided
+	aiScore := feedbackStruct.Score
+	if aiScore == 0 {
+		// Fallback: derive score from feedback text if AI didn't provide one
+		aiScore = deriveAIScore(feedbackStruct.Feedback, testResults)
+	}
+
+	// Build comprehensive feedback text from the struct
+	feedbackText := buildFeedbackText(feedbackStruct)
+
+	return feedbackText, aiScore, nil
+}
+
+// buildFeedbackText creates a formatted feedback string from the Feedback struct
+func buildFeedbackText(feedback services.Feedback) string {
+	var builder strings.Builder
+
+	// Main feedback
+	if feedback.Feedback != "" {
+		builder.WriteString(feedback.Feedback)
+		builder.WriteString("\n\n")
+	}
+
+	// Strengths
+	if len(feedback.Strengths) > 0 {
+		builder.WriteString("**Strengths:**\n")
+		for _, strength := range feedback.Strengths {
+			builder.WriteString(fmt.Sprintf("- %s\n", strength))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Areas for improvement
+	if len(feedback.Improvements) > 0 {
+		builder.WriteString("**Areas for Improvement:**\n")
+		for _, improvement := range feedback.Improvements {
+			builder.WriteString(fmt.Sprintf("- %s\n", improvement))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Correctness
+	if feedback.Correctness != "" {
+		builder.WriteString(fmt.Sprintf("**Correctness:** %s\n\n", feedback.Correctness))
+	}
+
+	// Code Quality
+	if feedback.CodeQuality != "" {
+		builder.WriteString(fmt.Sprintf("**Code Quality:** %s\n\n", feedback.CodeQuality))
+	}
+
+	// Suggestions
+	if feedback.Suggestions != "" {
+		builder.WriteString(fmt.Sprintf("**Suggestions:** %s\n", feedback.Suggestions))
+	}
+
+	return builder.String()
+}
+
+// buildDefaultAIPrompt creates a default evaluation prompt
+func buildDefaultAIPrompt(exercise *models.Exercise, code, language string, testResults *models.TestResults) string {
+	return fmt.Sprintf(`Evaluate this code submission for the following exercise:
+
+Exercise: %s
+Description: %s
+Difficulty: %s
+Language: %s
+
+Test Results: %d/%d tests passed
+
+Submitted Code:
+%s
+
+Please provide feedback on:
+1. Code correctness and logic
+2. Code quality and style
+3. Efficiency and best practices
+4. Suggestions for improvement
+
+Be constructive and educational in your feedback.`,
+		exercise.Title,
+		exercise.Description,
+		exercise.Difficulty,
+		language,
+		testResults.PassedTests,
+		testResults.TotalTests,
+		code)
+}
+
+// replacePlaceholders replaces template variables in AI prompt
+func replacePlaceholders(prompt string, exercise *models.Exercise, code, language string, testResults *models.TestResults) string {
+	replacer := strings.NewReplacer(
+		"{exercise_title}", exercise.Title,
+		"{exercise_description}", exercise.Description,
+		"{difficulty}", exercise.Difficulty,
+		"{language}", language,
+		"{tests_passed}", fmt.Sprintf("%d", testResults.PassedTests),
+		"{tests_total}", fmt.Sprintf("%d", testResults.TotalTests),
+		"{submitted_code}", code,
+	)
+	return replacer.Replace(prompt)
+}
+
+// deriveAIScore calculates a score based on AI feedback and test results
+func deriveAIScore(feedback string, testResults *models.TestResults) int {
+	// Simple heuristic: if all tests pass, base score is 80-100
+	// If some tests fail, base score is 40-80
+	// Adjust based on feedback sentiment (basic implementation)
+
+	baseScore := 50
+	if testResults.PassedTests == testResults.TotalTests {
+		baseScore = 85
+	} else if testResults.PassedTests > 0 {
+		ratio := float64(testResults.PassedTests) / float64(testResults.TotalTests)
+		baseScore = int(50 + ratio*35)
+	}
+
+	// Adjust based on feedback keywords (simple sentiment analysis)
+	feedbackLower := strings.ToLower(feedback)
+	if strings.Contains(feedbackLower, "excellent") || strings.Contains(feedbackLower, "perfect") {
+		baseScore = min(100, baseScore+15)
+	} else if strings.Contains(feedbackLower, "good") || strings.Contains(feedbackLower, "well done") {
+		baseScore = min(100, baseScore+10)
+	} else if strings.Contains(feedbackLower, "needs improvement") || strings.Contains(feedbackLower, "consider") {
+		baseScore = max(0, baseScore-10)
+	} else if strings.Contains(feedbackLower, "incorrect") || strings.Contains(feedbackLower, "wrong") {
+		baseScore = max(0, baseScore-20)
+	}
+
+	return baseScore
+}
+
+// saveSubmission saves the submission to the database
+func (h *SubmissionHandler) saveSubmission(
+	ctx context.Context,
+	userID, exerciseID, code, language string,
+	executionOutput *string,
+	executionError *string,
+	executionTimeMs *int,
+	testResults *models.TestResults,
+	aiFeedback *string,
+	aiScore *int,
+	aiEvaluationTimeMs *int,
+	testScore *int,
+	totalScore *int,
+	requestID string,
+) (*models.Submission, error) {
+	// Get attempt number
+	attemptCount, err := h.submissionRepo.CountAttempts(ctx, userID, exerciseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count attempts: %w", err)
+	}
+	attemptNumber := attemptCount + 1
+
+	// Create submission
+	submission := &models.Submission{
+		ID:                 uuid.New(),
+		UserID:             uuid.MustParse(userID),
+		ExerciseID:         uuid.MustParse(exerciseID),
+		SubmittedCode:      code,
+		Language:           language,
+		ExecutionOutput:    executionOutput,
+		ExecutionError:     executionError,
+		ExecutionTimeMs:    executionTimeMs,
+		TestResults:        testResults,
+		AIFeedback:         aiFeedback,
+		AIScore:            aiScore,
+		AIEvaluationTimeMs: aiEvaluationTimeMs,
+		TestScore:          testScore,
+		TotalScore:         totalScore,
+		AttemptNumber:      attemptNumber,
+	}
+
+	// Save to database
+	if err := h.submissionRepo.Create(ctx, submission); err != nil {
+		return nil, fmt.Errorf("failed to create submission: %w", err)
+	}
+
+	return submission, nil
+}
+
+// updateUserProgress updates user progress and mastery tracking
+func (h *SubmissionHandler) updateUserProgress(ctx context.Context, userID, nodeID string, score int, requestID string) error {
+	// For dogfooding MVP, implement basic mastery tracking
+	// A score of 80+ counts as passing the exercise
+
+	// Get current progress
+	progress, err := h.userProgressRepo.GetByUserAndNode(ctx, userID, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get user progress: %w", err)
+	}
+
+	// If no progress exists, create initial progress record
+	if progress == nil {
+		now := time.Now()
+		progress = &models.UserProgress{
+			ID:               uuid.New(),
+			UserID:           uuid.MustParse(userID),
+			NodeID:           uuid.MustParse(nodeID),
+			Status:           "in_progress",
+			ExercisesCompleted: 0,
+			ExercisesTotal:   0, // TODO: Count exercises for this node
+			MasteryThreshold: 80.0,
+			IsMastered:       false,
+			StartedAt:        &now,
+			LastActivityAt:   &now,
+		}
+	}
+
+	// Update last activity
+	now := time.Now()
+	progress.LastActivityAt = &now
+
+	// If score >= 80, increment exercises completed
+	if score >= 80 {
+		progress.ExercisesCompleted++
+	}
+
+	// Calculate mastery score (average of completed exercises)
+	// For MVP, we'll use a simplified approach
+	// TODO: Implement proper mastery calculation based on all submissions
+	masteryScore := float64(score)
+	progress.MasteryScore = &masteryScore
+
+	// Check if mastered (for MVP, just check if score >= threshold)
+	if masteryScore >= progress.MasteryThreshold {
+		progress.IsMastered = true
+		progress.Status = "completed"
+		if progress.CompletedAt == nil {
+			progress.CompletedAt = &now
+		}
+	}
+
+	// Save updated progress
+	if err := h.userProgressRepo.Upsert(ctx, progress); err != nil {
+		return fmt.Errorf("failed to update progress: %w", err)
+	}
+
+	logger.Logger.Info("user progress updated",
+		slog.String("request_id", requestID),
+		slog.String("user_id", userID),
+		slog.String("node_id", nodeID),
+		slog.Int("exercises_completed", progress.ExercisesCompleted),
+		slog.Bool("is_mastered", progress.IsMastered),
+	)
+
+	return nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max returns the maximum of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
