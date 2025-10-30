@@ -1,351 +1,260 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Code Auto-Grader is an LLM-powered educational platform for generating coding exercises and providing AI-driven feedback on student submissions.
+LLM-powered educational platform for generating coding exercises and providing AI-driven feedback.
 
-**Current Status**: MVP with code execution and AI feedback for single exercises.
+**Current Phase**: Dogfooding MVP - Week 3 (Learning Loop Integration)
 
-**Long-term Vision**: Adaptive learning platform with tech tree navigation, mastery-based progression, and multiple exercise types (see `IMPLEMENTATION_PLAN.md`).
+- Backend: ✅ Complete (APIs, test execution, AI evaluation, mastery tracking)
+- Frontend: 🔄 Next (Tech tree navigation UI, exercise history)
+- Goal: Personal Rust learning validation
 
-## Current Architecture
+**Tech Stack**: Go + Echo, PostgreSQL + pgx, SolidJS, Docker (code execution), Gemini AI
 
-**Backend (`/app` directory):**
-- Go HTTP server using Echo framework
-- PostgreSQL database with pgx driver
-- Google Gemini AI integration for exercise generation and code evaluation
-- Sandboxed code execution (JavaScript, Python, Rust) via Docker containers
-- Security middleware (rate limiting, CORS, security headers)
-- Structured logging with request ID tracking
-- Repository pattern for clean data access
+## Critical Architectural Decisions
 
-**Frontend (`/web` directory):**
-- SolidJS with TypeScript and Vite
-- Code editor with real-time execution and AI feedback
-- Single-page application (all logic in `App.tsx`)
-- Responsive CSS design with gradients
+Before coding, understand these constraints:
 
-**Database**: PostgreSQL with complete schema for users, tech trees, nodes, exercises, submissions, and progress tracking. See `app/database/README.md` for setup instructions.
+1. **Single Handler File**: All HTTP handlers in `app/handlers/handlers.go` (not split by domain)
 
-## Code Execution System
+   - Add methods to existing structs: `SubmissionHandler`, `ExerciseHandler`, `TechTreeHandler`, `NodeHandler`
 
-The backend securely executes code in Docker containers for multiple languages:
+2. **Hardcoded User ID**: `00000000-0000-0000-0000-000000000001` for MVP
 
-**Supported Languages:**
-- **JavaScript** (Node.js) - interpreted
-- **Python** - interpreted
-- **Rust** - compiled (uses rustc)
+   - Search for: `TODO: Get real user ID from auth context`
 
-**Security Sandbox:**
-- Isolated containers with no network access
-- Read-only filesystem
-- 5-second timeout limits
-- Memory limit: 128MB
-- CPU limit: 0.5 cores
-- Process limit: 50 PIDs
-- No capabilities, privilege escalation prevented
+3. **Repository Pattern Required**: Handlers never query database directly
 
-**Container Pool Management:**
-- Pre-warmed container pools per language (reduces cold start latency)
-- Automatic container rotation based on execution count and age
-- Health checks to detect and replace unhealthy containers
-- Configurable pool sizes via environment variables (`JS_POOL_SIZE`, `PYTHON_POOL_SIZE`, `RUST_POOL_SIZE`)
+   - Interfaces: `app/repository/repository.go`
+   - Implementations: `app/repository/*_repo.go`
+   - Wiring: `app/main.go` (dependency injection)
 
-## File Structure
+4. **JSONB Exercise Content**: `exercises.content` stores `{starter_code, test_cases[], hints[], evaluation_rubric}`
 
-**Backend:**
-```
-app/
-├── main.go                     # Server setup, routing, dependency injection
-├── handlers/
-│   ├── exercise.go            # Exercise generation endpoints
-│   ├── health.go              # Health check endpoint
-│   └── submission.go          # Code execution and evaluation endpoints
-├── services/
-│   ├── gemini.go              # Gemini API integration
-│   └── executor/              # Code execution service
-│       ├── executor.go        # Main execution logic
-│       ├── config.go          # Language configurations
-│       ├── pool.go            # Container pool management
-│       ├── docker.go          # Docker container operations
-│       └── maintenance.go     # Health checks and rotation
-├── database/                   # Database connection and utilities
-│   ├── database.go            # Connection pool, migrations
-│   ├── test_helpers.go        # Test database setup
-│   └── README.md              # Database setup guide
-├── repository/                 # Data access layer (Repository pattern)
-│   ├── repository.go          # Repository interfaces
-│   ├── exercise_repo.go       # Exercise CRUD operations
-│   ├── submission_repo.go     # Submission CRUD operations
-│   ├── tech_tree_repo.go      # Tech tree operations
-│   ├── node_repo.go           # Node operations
-│   ├── user_repo.go           # User operations
-│   └── user_progress_repo.go  # Progress tracking
-├── models/
-│   └── models.go              # Database models and structs
-├── migrations/                 # Database schema migrations
-│   ├── 000001_init_schema.up.sql    # Create tables
-│   └── 000001_init_schema.down.sql  # Drop tables
-├── cmd/
-│   └── seed/
-│       └── main.go            # Database seeding utility
-├── internal/
-│   ├── logger/
-│   │   └── logger.go          # Logger initialization
-│   └── content/               # Content loading and parsing
-│       ├── loader.go          # Load exercises from files
-│       ├── parser.go          # Parse markdown to models
-│       └── types.go           # Content data structures
-├── middleware/
-│   ├── logger.go              # Structured logging middleware
-│   ├── rate_limit.go          # Rate limiting (100 req/15min)
-│   └── request_id.go          # Request ID generation
-├── docker/
-│   ├── javascript.Dockerfile  # Node.js execution environment
-│   ├── python.Dockerfile      # Python execution environment
-│   └── rust.Dockerfile        # Rust execution environment
-├── Makefile                    # Database and development commands
-└── integration_test.go        # Integration tests
+   - Parse in application layer, use JSONB operators in queries
+
+5. **Monolithic Frontend**: All UI in `web/src/App.tsx` (don't split components yet)
+
+6. **Scoring Algorithm**: 60% test results + 40% AI evaluation, 80% threshold for mastery
+
+## Common Task Patterns
+
+### Adding API Endpoint
+
+1. Read `app/handlers/handlers.go` → add method to handler struct
+2. Read `app/main.go` → add route with handler method
+3. Use repositories for database access (never direct queries)
+4. Add integration test to `app/integration_test.go`
+
+### Modifying Database Schema
+
+```bash
+cd app && migrate create -ext sql -dir migrations -seq description
+# Edit .up.sql and .down.sql
+cd app && make db-reset  # Test migration
+# Update app/models/models.go and repository methods
 ```
 
-**Frontend:**
+### Frontend Development
+
+- Edit: `web/src/App.tsx` (single-page app)
+- API: fetch to `/api/*` (Vite proxies to :5000)
+- Keep monolithic until patterns emerge
+
+### Database Seeding
+
+```bash
+cd app && make db-seed  # or: go run cmd/seed/main.go
+# Content: app/content/*.md
+# Parser: app/internal/content/parser.go
 ```
-web/
-├── src/
-│   ├── App.tsx               # Main component (all UI logic)
-│   ├── index.tsx             # Entry point
-│   └── styles.css            # Global styles
-├── vite.config.ts            # Build config with API proxy to :5000
-└── dist/                     # Production build output (gitignored)
+
+## File Structure Quick Reference
+
+**Key Backend Files** (read these first):
+
+- `app/handlers/handlers.go` - ALL HTTP handlers
+- `app/models/models.go` - Database models
+- `app/repository/repository.go` - Repository interfaces
+- `app/main.go` - Server setup, DI, routing
+
+**Multi-file Components** (use Glob to explore):
+
+- `app/repository/*_repo.go` - Repository implementations
+- `app/services/executor/*.go` - Code execution
+- `app/migrations/*.sql` - Database migrations
+
+## Request Lifecycle (Submission Flow)
+
+```
+POST /api/submission/:exerciseId
+  → SubmissionHandler.SubmitExercise (handlers.go)
+  → ExerciseRepository.GetByID (fetch test cases from DB)
+  → CodeExecutionService.Execute (Docker container, 5s timeout)
+  → GeminiService.EvaluateCode (AI feedback with rubric)
+  → Calculate Score (60% tests + 40% AI)
+  → SubmissionRepository.Create (save to DB)
+  → UserProgressRepository.UpdateProgress (update mastery if ≥80%)
+  → Return JSON {submission, testResults, aiFeedback, score}
+```
+
+## Common Issues & Quick Fixes
+
+**"Failed to execute code"**
+
+```bash
+docker ps -a | grep code-grader  # Check containers
+curl localhost:5000/api/pool/status  # Check pool
+cd app && docker build -f docker/*.Dockerfile -t code-grader-* .  # Rebuild
+```
+
+**Database connection errors**
+
+```bash
+make docker-db-up  # Start PostgreSQL
+make migrate-up    # Run migrations
+cat app/.env | grep DATABASE_URL  # Verify config
+```
+
+**"Dirty database" migration errors**
+
+```bash
+make db-reset  # Nuclear option: drop + migrate + seed
+```
+
+**Frontend CORS/404 errors**
+
+```bash
+curl localhost:5000/api/health  # Backend must be on :5000
+# Frontend must be on :5173 (Vite proxy config)
 ```
 
 ## Development Commands
 
-**Backend (from `/app` directory):**
+**Setup** (one-time):
+
 ```bash
-go mod download               # Install dependencies
-go run main.go               # Run development server on :5000 (or PORT env var)
-go build -o code-auto-grader # Build production binary
-go test ./...                # Run tests
+cd app && cp .env.example .env  # Add GEMINI_API_KEY
+cd app && make install-tools    # Install migrate CLI
+cd app && make docker-db-up     # Start PostgreSQL
+cd app && make migrate-up       # Run migrations
+cd app && make db-seed          # Seed exercises
 ```
 
-**Frontend (from `/web` directory):**
+**Daily workflow**:
+
 ```bash
-npm install                  # Install dependencies
-npm run dev                 # Development server on :5173 (proxies API to :5000)
-npm run build               # Production build (outputs to dist/)
-npm run typecheck           # TypeScript type checking
+# Terminal 1: Backend
+cd app && go run main.go        # :5000
+
+# Terminal 2: Frontend
+cd web && npm run dev           # :5173 → proxies to :5000
+
+# Database
+cd app && make db-reset         # Fresh start (drop/migrate/seed)
+cd app && make test             # Run all tests
 ```
 
-**Database Commands (from `/app` directory):**
+**Production build**:
+
 ```bash
-make install-tools           # Install migrate CLI and other dev tools
-make docker-db-up            # Start PostgreSQL in Docker
-make migrate-up              # Run database migrations
-make db-seed                 # Seed database with content
-make db-reset                # Drop, migrate, and seed (fresh start)
-make test                    # Run all tests
-make help                    # Show all available commands
+cd web && npm run build         # Outputs to web/dist/
+cd app && go build -o code-auto-grader
+./app/code-auto-grader          # Serves both API + static frontend
 ```
 
-**Full Development Setup:**
-1. Set up backend: `cd app && cp .env.example .env` (add GEMINI_API_KEY and DATABASE_URL)
-2. Install development tools:
-   ```bash
-   cd app
-   make install-tools  # Installs golang-migrate CLI
-   ```
-3. Start PostgreSQL database:
-   ```bash
-   make docker-db-up  # Or use your local PostgreSQL
-   ```
-4. Set up database:
-   ```bash
-   make migrate-up    # Run migrations
-   make db-seed       # Seed with Rust exercises
-   ```
-5. Build Docker images for code execution (optional, auto-built on first run):
-   ```bash
-   docker build -f docker/javascript.Dockerfile -t code-grader-javascript .
-   docker build -f docker/python.Dockerfile -t code-grader-python .
-   docker build -f docker/rust.Dockerfile -t code-grader-rust .
-   ```
-6. Run backend: `go run main.go`
-7. Run frontend: `cd ../web && npm run dev` (in separate terminal)
-8. Open browser: http://localhost:5173
+## What NOT to Do
 
-## API Endpoints
+- ❌ Split handlers into multiple files (keep in `handlers.go`)
+- ❌ Query database directly in handlers (use repositories)
+- ❌ Add user authentication yet (MVP uses hardcoded ID)
+- ❌ Modify Docker security constraints (no network, read-only FS, resource limits)
+- ❌ Split frontend into components (keep `App.tsx` monolithic)
+- ❌ Add dependencies without checking (minimal: Echo, pgx, Gemini, Docker SDK)
+- ❌ Use `context.Background()` in handlers (use `c.Request().Context()`)
 
-**Exercise Generation:**
-- `GET /api/exercise/sample` - Get sample exercise (hardcoded)
-- `POST /api/exercise/generate` - Generate custom exercise via Gemini
-  - Body: `{ "difficulty": "easy|medium|hard", "topic": "string", "language": "javascript|python|rust" }`
+## Testing
 
-**Code Submission:**
-- `POST /api/submission/run` - Execute code without AI evaluation
-  - Body: `{ "code": "string", "language": "javascript|python|rust" }`
-  - Returns: `{ "output": "string", "error": "string", "executionTime": number }`
-- `POST /api/submission/submit` - Execute code and get AI feedback
-  - Body: `{ "code": "string", "language": "string", "exerciseDescription": "string" }`
-  - Returns: `{ "output": "string", "feedback": "string", "executionTime": number }`
-
-**Monitoring:**
-- `GET /api/health` - Health check
-- `GET /api/pool/status` - Container pool status (per language)
-
-## Environment Setup
-
-**Required:**
-- Go 1.20+ (project uses 1.24.7)
-- Node.js and npm
-- Docker (required for code execution)
-- PostgreSQL 14+ (or use Docker: `make docker-db-up`)
-- golang-migrate CLI tool (install: `make install-tools`)
-- Gemini API key (get from https://aistudio.google.com/app/apikey)
-
-**Environment Variables (app/.env):**
 ```bash
-# AI API
-GEMINI_API_KEY=your_api_key_here
+cd app && make test              # All tests
+cd app && go test ./repository/  # Specific package
+cd app && go test -v -run Integration  # Integration only
+```
 
-# Server Configuration
-PORT=5000                           # Optional, defaults to 5000
-ENVIRONMENT=development             # "development" or "production"
+**Test database**: Uses `TEST_DATABASE_URL` (port 5433)
+**Pattern**: Use `database.NewTestDatabase(t)` in tests for auto-setup/cleanup
+**Integration tests**: `app/integration_test.go` tests full HTTP lifecycle
 
-# Database Configuration
+## Environment Variables
+
+**Required in `app/.env`**:
+
+```bash
+GEMINI_API_KEY=your_key_here
 DATABASE_URL=postgres://code_grader:dev_password@localhost:5432/code_auto_grader?sslmode=disable
-TEST_DATABASE_URL=postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable
-DB_AUTO_MIGRATE=true                # Run migrations on startup (optional)
-DB_MIGRATIONS_PATH=file://migrations  # Path to migration files (optional)
+```
 
-# Code Execution Pool Sizes (optional, defaults shown)
-JS_POOL_SIZE=3
+**Optional**:
+
+```bash
+PORT=5000                    # Server port
+ENVIRONMENT=development      # or "production"
+JS_POOL_SIZE=3              # Container pool sizes
 PYTHON_POOL_SIZE=3
 RUST_POOL_SIZE=2
 ```
 
-**Security Features:**
-- Rate limiting (100 requests per 15 minutes per IP)
-- Docker container isolation (network disabled, read-only filesystem, resource limits)
-- Security headers (HSTS, X-Frame-Options, etc.)
-- CORS protection
-- Structured logging with request ID tracking
+## Code Execution Security
 
-## Production Deployment
+Docker containers are heavily sandboxed:
 
-1. Build frontend: `cd web && npm run build`
-2. Build backend: `cd app && go build -o code-auto-grader`
-3. Run: `./app/code-auto-grader` (serves both frontend and API)
-4. Ensure Docker is installed on production host
+- No network access
+- Read-only filesystem
+- 5-second timeout
+- 128MB memory, 0.5 CPU cores, 50 PIDs max
+- No capabilities, no privilege escalation
 
-**Infrastructure:**
-- Backend: Single binary deployed to VPS/cloud (DigitalOcean, Render, Fly.io)
-- Docker: Required on production host for code execution
-- CDN: Optional for frontend assets (Cloudflare, CloudFront)
+Pre-warmed pools per language reduce latency. Check status: `GET /api/pool/status`
 
-## Database Architecture
+## Key API Endpoints
 
-**Schema Overview:**
+**Implemented**:
 
-The database uses PostgreSQL with a complete schema for the learning platform:
+- `GET /api/tech-tree/:treeId` - Tech tree with nodes and progress
+- `GET /api/node/:nodeId` - Node with exercises and progress
+- `GET /api/exercise/:exerciseId` - Exercise with submission history
+- `POST /api/submission/:exerciseId` - Submit code for evaluation
+  - Body: `{code, language}`
+  - Returns: test results, AI feedback, score, mastery updates
 
-**Core Tables:**
-- **users** - User accounts (UUID, username, email, display_name)
-- **tech_trees** - Learning paths (e.g., "Rust Fundamentals")
-- **nodes** - Topics within tech trees with DAG structure via `node_prerequisites`
-- **exercises** - Individual coding exercises with JSONB content
-- **submissions** - User submission history (code, execution results, AI feedback, scores)
-- **user_progress** - Progress tracking at node level (mastery scores, completion status)
+**Monitoring**:
 
-**Key Features:**
-- Automatic `updated_at` triggers on all tables
-- JSONB storage for flexible exercise content (starter code, test cases, hints, rubrics)
-- DAG (directed acyclic graph) for node prerequisites
-- Mastery-based progression (80% threshold by default)
-- Submission scoring: 60% test results + 40% AI evaluation
+- `GET /api/health` - Health check
+- `GET /api/pool/status` - Container pool status
 
-**Repository Pattern:**
+## Database Schema
 
-Clean data access layer with interfaces and implementations:
-- `ExerciseRepository` - CRUD operations for exercises
-- `SubmissionRepository` - Save and retrieve submissions with history
-- `TechTreeRepository` - Tech tree management
-- `NodeRepository` - Node operations and prerequisite queries
-- `UserRepository` - User account operations
-- `UserProgressRepository` - Progress tracking and mastery calculations
+**Core tables**: `users`, `tech_trees`, `nodes`, `exercises`, `submissions`, `user_progress`
 
-**Migrations:**
+**Key features**:
 
-Using golang-migrate for schema versioning:
-- Migration files in `app/migrations/`
-- Run with `make migrate-up` / `make migrate-down`
-- Auto-migration on app startup (configurable via `DB_AUTO_MIGRATE`)
+- JSONB content fields for flexible exercise structure
+- DAG for node prerequisites
+- Automatic `updated_at` triggers
+- Mastery threshold: 80%
 
-**Content Seeding:**
+See `app/database/README.md` for detailed schema docs.
 
-Structured content system for exercises:
-- Exercise files: Markdown with JSON frontmatter
-- Content loader: Parses markdown sections (starter code, tests, hints)
-- Seed command: `make db-seed` or `go run cmd/seed/main.go`
-- 9 complete Rust exercises included (Nodes 1-3)
+## Next Steps (Current Priority)
 
-See `app/database/README.md` for detailed database setup and usage instructions.
+Week 3 UI tasks:
 
-## TypeScript Configuration
+1. Tech tree navigation UI
+2. Exercise history view
+3. "Next Exercise" button
+4. Progress indicators
 
-The frontend uses strict TypeScript with:
-- SolidJS JSX support
-- Modern ES2020+ features
-- Vite bundler with HMR
-- Type checking via `npm run typecheck`
-
-## Planned Features (See IMPLEMENTATION_PLAN.md)
-
-The following are **not yet implemented** but planned for future development:
-
-**Database Layer (✅ COMPLETED):**
-- ✅ PostgreSQL schema with all tables
-- ✅ Models: `TechTree`, `Node`, `Exercise`, `Submission`, `UserProgress`
-- ✅ Migration system using golang-migrate
-- ✅ Repository pattern for data access
-- ✅ Content seeding system
-- 🔄 **In Progress**: Integrate repositories with API handlers
-
-**Exercise Types:**
-- Coding problems (currently supported)
-- Debugging exercises (broken code to fix)
-- Project-based (multi-step tasks)
-- Conceptual questions (essay with diagrams)
-- System design (architecture diagrams)
-
-**User System:**
-- Authentication (OAuth + email/password)
-- User profiles and progress tracking
-- Exercise attempt history
-
-**AI Enhancements:**
-- Contextual feedback (consider student history)
-- Progression agent (recommend next topic)
-- Content generator (create exercises from documents)
-- Motivational coaching
-
-**Tech Tree Navigation:**
-- Visual tech tree interface
-- Mastery-based progression
-- Unlockable nodes based on performance
-
-See `IMPLEMENTATION_PLAN.md` for detailed roadmap and `BUSINESS_PLAN.md` for strategic vision.
-
-## Development Philosophy
-
-**Current Phase**: Building MVP foundation with focus on:
-1. **Reliability**: Stable code execution, no container escapes
-2. **Quality feedback**: Useful AI responses, not generic
-3. **Performance**: Fast execution via container pooling
-
-**Avoiding**:
-- Premature optimization (don't build features before validating need)
-- Over-engineering (keep simple until scale requires complexity)
-- Scope creep (MVP first, then iterate based on user feedback)
+See `IMPLEMENTATION_PLAN.md` for roadmap.
