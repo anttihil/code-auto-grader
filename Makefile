@@ -125,21 +125,21 @@ migrate-create: ## Create new migration - Usage: make migrate-create NAME=add_us
 
 db-seed: ## Seed database with all content (from content/ directory)
 	@echo "$(GREEN)Seeding database from content/...$(NC)"
-	@cd app && go run cmd/seed/main.go --all
+	@cd app && go run cmd/seed/main.go --all --dir ../content
 	@echo "$(GREEN)✓ Seeding complete!$(NC)"
 
 db-seed-users: ## Seed only users
 	@echo "$(GREEN)Seeding users...$(NC)"
-	@cd app && go run cmd/seed/main.go --users
+	@cd app && go run cmd/seed/main.go --users --dir ../content
 
 db-seed-exercises: ## Seed only exercises
 	@echo "$(GREEN)Seeding exercises...$(NC)"
-	@cd app && go run cmd/seed/main.go --exercises
+	@cd app && go run cmd/seed/main.go --exercises --dir ../content
 
 db-seed-force: ## Force reseed (overwrites existing data)
 	@echo "$(YELLOW)⚠️  WARNING: This will overwrite existing seed data!$(NC)"
 	@read -p "Type 'yes' to continue: " confirm && [ "$$confirm" = "yes" ] || (echo "Cancelled." && exit 1)
-	@cd app && go run cmd/seed/main.go --all --force
+	@cd app && go run cmd/seed/main.go --all --force --dir ../content
 	@echo "$(GREEN)✓ Force seeding complete!$(NC)"
 
 # Test Commands

@@ -21,7 +21,7 @@ func main() {
 	shouldSeedExercisesOnly := flag.Bool("exercises", false, "Seed exercises only")
 	shouldSeedAll := flag.Bool("all", false, "Seed all data")
 	force := flag.Bool("force", false, "Force overwrite existing data (delete and re-insert)")
-	contentDir := flag.String("dir", "../../content", "Path to content directory")
+	contentDir := flag.String("dir", "../../../content", "Path to content directory")
 
 	flag.Parse()
 
