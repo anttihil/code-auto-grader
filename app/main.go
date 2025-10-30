@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
+	"github.com/anttihil/code-auto-grader/database"
 	"github.com/anttihil/code-auto-grader/handlers"
 	"github.com/anttihil/code-auto-grader/internal/logger"
 	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
+	"github.com/anttihil/code-auto-grader/repository"
 	"github.com/anttihil/code-auto-grader/services"
 	"github.com/anttihil/code-auto-grader/services/executor"
 	"github.com/joho/godotenv"
@@ -38,6 +41,32 @@ func main() {
 		port = "5000"
 	}
 
+	// Initialize database
+	logger.Logger.Info("initializing database connection")
+	ctx := context.Background()
+	db, err := database.NewFromEnv(ctx)
+	if err != nil {
+		logger.Logger.Error("failed to initialize database",
+			slog.String("error", err.Error()),
+		)
+		os.Exit(1)
+	}
+	defer func() {
+		logger.Logger.Info("closing database connection")
+		db.Close()
+	}()
+	logger.Logger.Info("database connection established successfully")
+
+	// Initialize repositories
+	logger.Logger.Info("initializing repositories")
+	techTreeRepo := repository.NewTechTreeRepo(db.Pool)
+	nodeRepo := repository.NewNodeRepo(db.Pool)
+	exerciseRepo := repository.NewExerciseRepo(db.Pool)
+	submissionRepo := repository.NewSubmissionRepo(db.Pool)
+	userProgressRepo := repository.NewUserProgressRepo(db.Pool)
+	// userRepo := repository.NewUserRepo(db.Pool) // Not used yet in dogfooding MVP
+	logger.Logger.Info("repositories initialized successfully")
+
 	// Initialize services
 	logger.Logger.Info("initializing services")
 
@@ -59,8 +88,10 @@ func main() {
 	logger.Logger.Info("gemini service initialized")
 
 	// Create handlers with injected dependencies
-	submissionHandler := handlers.NewSubmissionHandler(codeExecutor, geminiService)
-	exerciseHandler := handlers.NewExerciseHandler(geminiService)
+	submissionHandler := handlers.NewSubmissionHandler(codeExecutor, geminiService, submissionRepo, exerciseRepo, userProgressRepo)
+	exerciseHandler := handlers.NewExerciseHandler(geminiService, exerciseRepo, submissionRepo)
+	techTreeHandler := handlers.NewTechTreeHandler(techTreeRepo, nodeRepo, userProgressRepo)
+	nodeHandler := handlers.NewNodeHandler(nodeRepo, exerciseRepo, userProgressRepo)
 	logger.Logger.Info("handlers initialized with dependencies")
 
 	// Create Echo instance
@@ -79,10 +110,20 @@ func main() {
 
 	// API routes
 	e.GET("/api/health", handlers.HealthCheck)
+
+	// Exercise routes (legacy)
 	e.GET("/api/exercise/sample", exerciseHandler.GetSampleExercise)
 	e.POST("/api/exercise/generate", exerciseHandler.GenerateExercise)
+
+	// Tech tree navigation routes
+	e.GET("/api/tech-tree/:treeId", techTreeHandler.GetTechTree)
+	e.GET("/api/node/:nodeId", nodeHandler.GetNode)
+	e.GET("/api/exercise/:exerciseId", exerciseHandler.GetExercise)
+
+	// Submission routes
 	e.POST("/api/submission/run", submissionHandler.RunCode)
 	e.POST("/api/submission/submit", submissionHandler.SubmitCode)
+	e.POST("/api/submission/:exerciseId", submissionHandler.SubmitToExercise)
 	e.GET("/api/pool/status", submissionHandler.GetPoolStatus)
 
 	// Start server

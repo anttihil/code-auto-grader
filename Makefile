@@ -1,7 +1,7 @@
 # Makefile for Code Auto-Grader
 # Usage: make <target>
 
-.PHONY: help dev db-up db-down db-reset migrate-up migrate-down migrate-create db-shell db-seed db-seed-users db-seed-exercises db-seed-force test clean
+.PHONY: help dev dev-watch db-up db-down db-reset db-dump db-restore migrate-up migrate-down migrate-create db-shell db-seed db-seed-users db-seed-exercises db-seed-force test test-coverage clean install-tools
 
 # Colors for output
 GREEN  := \033[0;32m
@@ -29,6 +29,10 @@ dev: db-up ## Start full development environment (database + migrations)
 	@echo "$(YELLOW)Next steps:$(NC)"
 	@echo "  Terminal 1: cd app && go run main.go"
 	@echo "  Terminal 2: cd web && npm run dev"
+
+dev-watch: ## Run backend with auto-reload (requires air)
+	@echo "$(GREEN)Starting backend with auto-reload...$(NC)"
+	@cd app && air
 
 # Database Commands
 
@@ -59,12 +63,32 @@ db-shell: ## Open psql shell to development database
 db-shell-test: ## Open psql shell to test database
 	@docker compose exec postgres_test psql -U code_grader -d code_auto_grader_test
 
+db-dump: ## Dump database to file (Usage: make db-dump FILE=backup.sql)
+	@if [ -z "$(FILE)" ]; then \
+		FILE="backup_$$(date +%Y%m%d_%H%M%S).sql"; \
+	else \
+		FILE="$(FILE)"; \
+	fi; \
+	echo "$(GREEN)Dumping database to $$FILE...$(NC)"; \
+	docker compose exec -T postgres pg_dump -U code_grader code_auto_grader > $$FILE; \
+	echo "$(GREEN)✓ Database dumped to $$FILE$(NC)"
+
+db-restore: ## Restore database from file (Usage: make db-restore FILE=backup.sql)
+	@if [ -z "$(FILE)" ]; then \
+		echo "$(YELLOW)Error: FILE is required. Usage: make db-restore FILE=backup.sql$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)Restoring database from $(FILE)...$(NC)"
+	@docker compose exec -T postgres psql -U code_grader code_auto_grader < $(FILE)
+	@echo "$(GREEN)✓ Database restored from $(FILE)$(NC)"
+
 # Migration Commands (using golang-migrate)
 
-migrate-install: ## Install golang-migrate CLI tool
-	@echo "$(GREEN)Installing golang-migrate...$(NC)"
+install-tools: ## Install development tools (migrate, air)
+	@echo "$(GREEN)Installing development tools...$(NC)"
 	@go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
-	@echo "$(GREEN)golang-migrate installed to ~/go/bin/migrate$(NC)"
+	@go install github.com/cosmtrek/air@latest
+	@echo "$(GREEN)✓ Tools installed: migrate, air$(NC)"
 	@echo "$(YELLOW)Make sure ~/go/bin is in your PATH$(NC)"
 
 migrate-up: ## Run all pending migrations
@@ -125,6 +149,13 @@ test: db-up ## Run tests with test database
 	@$(MAKE) test-migrate
 	@cd app && TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v ./...
 
+test-coverage: db-up ## Run tests with coverage report
+	@echo "$(GREEN)Running tests with coverage...$(NC)"
+	@$(MAKE) test-migrate
+	@cd app && TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v -coverprofile=coverage.out ./...
+	@cd app && go tool cover -html=coverage.out -o coverage.html
+	@echo "$(GREEN)✓ Coverage report generated: app/coverage.html$(NC)"
+
 test-migrate: ## Run migrations on test database
 	@echo "$(GREEN)Migrating test database...$(NC)"
 	@migrate -database "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" -path ./app/migrations up
@@ -144,15 +175,16 @@ clean: ## Clean up containers, volumes, and build artifacts
 	@echo "$(YELLOW)Cleaning up...$(NC)"
 	@docker compose down -v
 	@rm -f app/code-auto-grader
+	@rm -f app/coverage.out app/coverage.html
 	@rm -rf web/dist
 	@echo "$(GREEN)Cleanup complete!$(NC)"
 
 # Quick Start (for first-time setup)
 
-setup: ## First-time setup (installs migrate, starts DB, runs migrations)
+setup: ## First-time setup (installs tools, starts DB, runs migrations)
 	@echo "$(GREEN)Setting up Code Auto-Grader for the first time...$(NC)"
 	@echo ""
-	@$(MAKE) migrate-install
+	@$(MAKE) install-tools
 	@if [ ! -f app/.env ]; then \
 		cp app/.env.example app/.env; \
 		echo "$(GREEN)Created app/.env from template$(NC)"; \
