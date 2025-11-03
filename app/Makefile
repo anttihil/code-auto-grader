@@ -27,12 +27,12 @@ dev: db-up ## Start full development environment (database + migrations)
 	@echo "$(GREEN)Database ready!$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "  Terminal 1: cd app && go run main.go"
-	@echo "  Terminal 2: cd web && npm run dev"
+	@echo "  Terminal 1: go run main.go"
+	@echo "  Terminal 2: cd ../web && npm run dev"
 
 dev-watch: ## Run backend with auto-reload (requires air)
 	@echo "$(GREEN)Starting backend with auto-reload...$(NC)"
-	@cd app && air
+	@air
 
 # Database Commands
 
@@ -93,15 +93,15 @@ install-tools: ## Install development tools (migrate, air)
 
 migrate-up: ## Run all pending migrations
 	@echo "$(GREEN)Running migrations...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./app/migrations up
+	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations up
 	@echo "$(GREEN)Migrations complete!$(NC)"
 
 migrate-down: ## Rollback last migration
 	@echo "$(YELLOW)Rolling back last migration...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./app/migrations down 1
+	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations down 1
 
 migrate-version: ## Show current migration version
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./app/migrations version
+	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations version
 
 migrate-force: ## Force migration version (use when dirty) - Usage: make migrate-force VERSION=1
 	@if [ -z "$(VERSION)" ]; then \
@@ -110,7 +110,7 @@ migrate-force: ## Force migration version (use when dirty) - Usage: make migrate
 		exit 1; \
 	fi
 	@echo "$(YELLOW)Forcing migration version to $(VERSION)...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./app/migrations force $(VERSION)
+	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations force $(VERSION)
 
 migrate-create: ## Create new migration - Usage: make migrate-create NAME=add_user_avatar
 	@if [ -z "$(NAME)" ]; then \
@@ -119,27 +119,27 @@ migrate-create: ## Create new migration - Usage: make migrate-create NAME=add_us
 		exit 1; \
 	fi
 	@echo "$(GREEN)Creating new migration: $(NAME)$(NC)"
-	@migrate create -ext sql -dir ./app/migrations -seq $(NAME)
+	@migrate create -ext sql -dir ./migrations -seq $(NAME)
 
 # Seed Commands
 
 db-seed: ## Seed database with all content (from content/ directory)
 	@echo "$(GREEN)Seeding database from content/...$(NC)"
-	@cd app && go run cmd/seed/main.go --all --dir ../content
+	@go run cmd/seed/main.go --all --dir ../content
 	@echo "$(GREEN)✓ Seeding complete!$(NC)"
 
 db-seed-users: ## Seed only users
 	@echo "$(GREEN)Seeding users...$(NC)"
-	@cd app && go run cmd/seed/main.go --users --dir ../content
+	@go run cmd/seed/main.go --users --dir ../content
 
 db-seed-exercises: ## Seed only exercises
 	@echo "$(GREEN)Seeding exercises...$(NC)"
-	@cd app && go run cmd/seed/main.go --exercises --dir ../content
+	@go run cmd/seed/main.go --exercises --dir ../content
 
 db-seed-force: ## Force reseed (overwrites existing data)
 	@echo "$(YELLOW)⚠️  WARNING: This will overwrite existing seed data!$(NC)"
 	@read -p "Type 'yes' to continue: " confirm && [ "$$confirm" = "yes" ] || (echo "Cancelled." && exit 1)
-	@cd app && go run cmd/seed/main.go --all --force --dir ../content
+	@go run cmd/seed/main.go --all --force --dir ../content
 	@echo "$(GREEN)✓ Force seeding complete!$(NC)"
 
 # Test Commands
@@ -147,26 +147,26 @@ db-seed-force: ## Force reseed (overwrites existing data)
 test: db-up ## Run tests with test database
 	@echo "$(GREEN)Running tests...$(NC)"
 	@$(MAKE) test-migrate
-	@cd app && TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v ./...
+	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v ./...
 
 test-coverage: db-up ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
 	@$(MAKE) test-migrate
-	@cd app && TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v -coverprofile=coverage.out ./...
-	@cd app && go tool cover -html=coverage.out -o coverage.html
-	@echo "$(GREEN)✓ Coverage report generated: app/coverage.html$(NC)"
+	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v -coverprofile=coverage.out ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "$(GREEN)✓ Coverage report generated: coverage.html$(NC)"
 
 test-migrate: ## Run migrations on test database
 	@echo "$(GREEN)Migrating test database...$(NC)"
-	@migrate -database "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" -path ./app/migrations up
+	@migrate -database "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" -path ./migrations up
 
 # Build Commands
 
 build: ## Build production binary
 	@echo "$(GREEN)Building backend...$(NC)"
-	@cd app && go build -o code-auto-grader main.go
+	@go build -o code-auto-grader main.go
 	@echo "$(GREEN)Building frontend...$(NC)"
-	@cd web && npm run build
+	@cd ../web && npm run build
 	@echo "$(GREEN)Build complete!$(NC)"
 
 # Cleanup Commands
@@ -174,9 +174,9 @@ build: ## Build production binary
 clean: ## Clean up containers, volumes, and build artifacts
 	@echo "$(YELLOW)Cleaning up...$(NC)"
 	@docker compose down -v
-	@rm -f app/code-auto-grader
-	@rm -f app/coverage.out app/coverage.html
-	@rm -rf web/dist
+	@rm -f ./code-auto-grader
+	@rm -f ./coverage.out ./coverage.html
+	@rm -rf ../web/dist
 	@echo "$(GREEN)Cleanup complete!$(NC)"
 
 # Quick Start (for first-time setup)
@@ -185,10 +185,10 @@ setup: ## First-time setup (installs tools, starts DB, runs migrations)
 	@echo "$(GREEN)Setting up Code Auto-Grader for the first time...$(NC)"
 	@echo ""
 	@$(MAKE) install-tools
-	@if [ ! -f app/.env ]; then \
-		cp app/.env.example app/.env; \
-		echo "$(GREEN)Created app/.env from template$(NC)"; \
-		echo "$(YELLOW)⚠️  Please edit app/.env and add your GEMINI_API_KEY$(NC)"; \
+	@if [ ! -f .env ]; then \
+		cp .env.example .env; \
+		echo "$(GREEN)Created .env from template$(NC)"; \
+		echo "$(YELLOW)⚠️  Please edit .env and add your GEMINI_API_KEY$(NC)"; \
 		read -p "Press enter when ready..."; \
 	fi
 	@$(MAKE) db-up
