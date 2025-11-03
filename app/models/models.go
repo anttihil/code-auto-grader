@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -244,13 +245,48 @@ func (sa *StringArray) Scan(src interface{}) error {
 
 	switch v := src.(type) {
 	case []byte:
-		// PostgreSQL array format: {elem1,elem2,elem3}
-		return json.Unmarshal(v, sa)
+		return sa.parsePostgresArray(string(v))
 	case string:
-		return json.Unmarshal([]byte(v), sa)
+		return sa.parsePostgresArray(v)
+	case []string:
+		*sa = v
+		return nil
 	default:
+		return fmt.Errorf("unsupported type for StringArray: %T", src)
+	}
+}
+
+// parsePostgresArray parses PostgreSQL TEXT[] format: {elem1,elem2,elem3}
+func (sa *StringArray) parsePostgresArray(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "{}" {
+		*sa = []string{}
 		return nil
 	}
+
+	// Remove outer braces
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
+
+	if s == "" {
+		*sa = []string{}
+		return nil
+	}
+
+	// Split by comma and trim quotes/spaces from each element
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		// Remove quotes if present
+		part = strings.Trim(part, "\"")
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+
+	*sa = result
+	return nil
 }
 
 // Implement driver.Valuer for StringArray

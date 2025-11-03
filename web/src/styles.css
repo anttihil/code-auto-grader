@@ -38,15 +38,369 @@ header p {
     opacity: 0.9;
 }
 
+/* ============================================================================
+   BREADCRUMBS & NAVIGATION
+   ============================================================================ */
+
+.breadcrumbs {
+    background: #f8f9fa;
+    padding: 15px 30px;
+    border-bottom: 2px solid #e9ecef;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.breadcrumb-link {
+    background: none;
+    border: none;
+    color: #667eea;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: underline;
+    padding: 0;
+    transition: color 0.3s;
+}
+
+.breadcrumb-link:hover {
+    color: #5568d3;
+}
+
+.breadcrumb-separator {
+    color: #6c757d;
+    font-weight: bold;
+}
+
+.breadcrumb-current {
+    color: #333;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+/* ============================================================================
+   ERROR BANNER
+   ============================================================================ */
+
+.error-banner {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 15px 30px;
+    border-bottom: 2px solid #f5c6cb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.error-banner button {
+    background: none;
+    border: none;
+    color: #721c24;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 10px;
+}
+
+/* ============================================================================
+   CONTENT WRAPPER
+   ============================================================================ */
+
 .content {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    padding: 30px;
+    min-height: 400px;
+}
+
+/* ============================================================================
+   TECH TREE VIEW
+   ============================================================================ */
+
+.tech-tree-view {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.tech-tree-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.tech-tree-header h2 {
+    color: #667eea;
+    font-size: 2em;
+    margin-bottom: 10px;
+}
+
+.tech-tree-header p {
+    color: #6c757d;
+    font-size: 1.1em;
+}
+
+.nodes-list {
+    display: flex;
+    flex-direction: column;
     gap: 20px;
+}
+
+.node-card {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 25px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.node-card:hover:not(.locked) {
+    border-color: #667eea;
+    transform: translateY(-4px);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.2);
+}
+
+.node-card.locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #f0f0f0;
+}
+
+.node-card.complete {
+    border-color: #28a745;
+    background: linear-gradient(135deg, #f0fff4 0%, #f8f9fa 100%);
+}
+
+.node-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.node-card-header h3 {
+    color: #333;
+    font-size: 1.5em;
+}
+
+.node-progress-badge {
+    background: #667eea;
+    color: white;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.node-card p {
+    color: #6c757d;
+    margin-bottom: 15px;
+    line-height: 1.6;
+}
+
+.progress-bar {
+    background: #e9ecef;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 15px;
+}
+
+.progress-fill {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    height: 100%;
+    transition: width 0.5s ease;
+}
+
+.locked-message {
+    color: #856404;
+    background: #fff3cd;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+/* ============================================================================
+   NODE DETAIL VIEW
+   ============================================================================ */
+
+.node-detail-view {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.node-detail-header {
+    margin-bottom: 30px;
+}
+
+.node-detail-header h2 {
+    color: #667eea;
+    font-size: 2em;
+    margin-bottom: 10px;
+}
+
+.node-detail-header p {
+    color: #6c757d;
+    font-size: 1.1em;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+.node-progress-summary {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+}
+
+.mastery-badge {
+    background: #d4edda;
+    color: #155724;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    display: inline-block;
+    margin-bottom: 10px;
+}
+
+.progress-stats {
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.exercises-list {
+    margin-top: 30px;
+}
+
+.exercises-list h3 {
+    color: #667eea;
+    margin-bottom: 20px;
+    font-size: 1.5em;
+}
+
+.exercise-card {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
     padding: 20px;
+    margin-bottom: 15px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.exercise-card:hover {
+    border-color: #667eea;
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.exercise-card.complete {
+    border-color: #28a745;
+}
+
+.exercise-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.exercise-card-header h4 {
+    color: #333;
+    font-size: 1.2em;
+}
+
+.exercise-meta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.difficulty {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.difficulty.beginner {
+    background: #d4edda;
+    color: #155724;
+}
+
+.difficulty.intermediate {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.difficulty.advanced {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.score-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.score-badge.high {
+    background: #d4edda;
+    color: #155724;
+}
+
+.score-badge.medium {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.score-badge.low {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.language-badge {
+    background: #667eea;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.attempt-badge {
+    background: #6c757d;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.exercise-card p {
+    color: #6c757d;
+    margin-bottom: 15px;
+    line-height: 1.6;
+}
+
+.exercise-card .btn {
+    margin-top: 10px;
+}
+
+/* ============================================================================
+   EXERCISE VIEW
+   ============================================================================ */
+
+.exercise-view {
+    display: grid;
+    gap: 30px;
 }
 
 .exercise-panel {
-    grid-column: 1 / -1;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
 }
 
 .panel-header {
@@ -70,102 +424,40 @@ header p {
     flex-wrap: wrap;
 }
 
-select {
-    padding: 8px 12px;
-    border: 2px solid #ddd;
-    border-radius: 6px;
-    font-size: 14px;
-    background: white;
-    cursor: pointer;
-    transition: border-color 0.3s;
-}
-
-select:hover {
-    border-color: #667eea;
-}
-
-.btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s;
-    color: white;
-}
-
-.btn-primary {
-    background: #667eea;
-}
-
-.btn-primary:hover {
-    background: #5568d3;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.btn-secondary {
-    background: #6c757d;
-}
-
-.btn-secondary:hover {
-    background: #5a6268;
-    transform: translateY(-2px);
-}
-
-.btn-success {
-    background: #28a745;
-}
-
-.btn-success:hover {
-    background: #218838;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
-}
-
 .exercise-content {
-    background: #f8f9fa;
-    padding: 20px;
-    border-radius: 8px;
-    border: 2px solid #e9ecef;
-    min-height: 200px;
+    line-height: 1.8;
 }
 
-.exercise-content h3 {
+.exercise-content p {
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.learning-objectives {
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    margin-top: 15px;
+}
+
+.learning-objectives h4 {
     color: #667eea;
     margin-bottom: 10px;
 }
 
-.exercise-content .difficulty {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    margin-bottom: 10px;
+.learning-objectives ul {
+    margin-left: 20px;
 }
 
-.exercise-content .difficulty.beginner {
-    background: #d4edda;
-    color: #155724;
+.learning-objectives li {
+    margin: 5px 0;
 }
 
-.exercise-content .difficulty.intermediate {
-    background: #fff3cd;
-    color: #856404;
-}
-
-.exercise-content .difficulty.advanced {
-    background: #f8d7da;
-    color: #721c24;
-}
-
-.exercise-content .hints {
+.hints {
     margin-top: 15px;
 }
 
-.exercise-content .hints summary {
+.hints summary {
     cursor: pointer;
     font-weight: 600;
     color: #667eea;
@@ -175,17 +467,24 @@ select:hover {
     margin-bottom: 8px;
 }
 
-.exercise-content .hints ul {
+.hints ul {
     margin-top: 10px;
     margin-left: 20px;
 }
 
-.exercise-content .hints li {
+.hints li {
     margin: 5px 0;
 }
 
+/* ============================================================================
+   CODE EDITOR
+   ============================================================================ */
+
 .editor-panel {
-    grid-column: 1 / -1;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
 }
 
 .code-textarea {
@@ -237,55 +536,266 @@ select:hover {
     color: #a9dc76;
 }
 
-.feedback-panel {
-    grid-column: 1 / -1;
-}
+/* ============================================================================
+   SUBMISSION HISTORY
+   ============================================================================ */
 
-.feedback-content {
+.submission-history {
     background: #f8f9fa;
     padding: 20px;
     border-radius: 8px;
     border: 2px solid #e9ecef;
-    min-height: 150px;
 }
 
-.feedback-content .score {
-    display: inline-block;
-    padding: 10px 20px;
+.submission-history h2 {
+    color: #667eea;
+    margin-bottom: 20px;
+}
+
+.submissions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.submission-card {
+    background: white;
+    border: 2px solid #e9ecef;
     border-radius: 8px;
-    font-size: 24px;
-    font-weight: bold;
-    margin-bottom: 15px;
+    padding: 20px;
 }
 
-.feedback-content .score.high {
+.submission-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.submission-header h3 {
+    color: #333;
+    font-size: 1.2em;
+}
+
+.submission-meta {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.submission-date {
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.submission-score {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.submission-score.high {
     background: #d4edda;
     color: #155724;
 }
 
-.feedback-content .score.medium {
+.submission-score.medium {
     background: #fff3cd;
     color: #856404;
 }
 
-.feedback-content .score.low {
+.submission-score.low {
     background: #f8d7da;
     color: #721c24;
 }
 
-.feedback-content h4 {
-    color: #667eea;
-    margin-top: 15px;
-    margin-bottom: 8px;
+.submission-details {
+    display: grid;
+    gap: 20px;
 }
 
-.feedback-content ul {
+/* Test Results */
+.test-results h4 {
+    color: #667eea;
+    margin-bottom: 10px;
+}
+
+.test-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.test-result {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 4px solid transparent;
+}
+
+.test-result.passed {
+    border-left-color: #28a745;
+}
+
+.test-result.failed {
+    border-left-color: #dc3545;
+}
+
+.test-icon {
+    font-size: 18px;
+}
+
+.test-name {
+    flex: 1;
+    font-weight: 600;
+    color: #333;
+}
+
+.test-error {
+    flex-basis: 100%;
+    margin-top: 5px;
+    padding: 8px;
+    background: #f8d7da;
+    color: #721c24;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+/* AI Feedback */
+.ai-feedback {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.ai-feedback h4 {
+    color: #667eea;
+    margin-bottom: 15px;
+}
+
+.feedback-section {
+    margin-bottom: 15px;
+}
+
+.feedback-section h5 {
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 1em;
+}
+
+.feedback-section ul {
     margin-left: 20px;
 }
 
-.feedback-content li {
+.feedback-section li {
     margin: 5px 0;
+    line-height: 1.6;
 }
+
+.feedback-section p {
+    line-height: 1.6;
+    color: #333;
+}
+
+/* Submission Code */
+.submission-code {
+    margin-top: 10px;
+}
+
+.submission-code summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #667eea;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.submission-code pre {
+    background: #282a36;
+    color: #f8f8f2;
+    padding: 15px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin-top: 10px;
+}
+
+.submission-code code {
+    font-family: 'Courier New', 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* ============================================================================
+   EXERCISE NAVIGATION
+   ============================================================================ */
+
+.exercise-navigation {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.btn-large {
+    padding: 15px 40px;
+    font-size: 16px;
+}
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    color: white;
+}
+
+.btn-primary {
+    background: #667eea;
+}
+
+.btn-primary:hover {
+    background: #5568d3;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    background: #6c757d;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+    transform: translateY(-2px);
+}
+
+.btn-success {
+    background: #28a745;
+}
+
+.btn-success:hover {
+    background: #218838;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+}
+
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
 
 .loading-message,
 .info-message {
@@ -329,22 +839,44 @@ select:hover {
     font-size: 18px;
 }
 
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
 @media (max-width: 768px) {
     .content {
-        grid-template-columns: 1fr;
+        padding: 20px;
     }
-    
+
     .panel-header {
         flex-direction: column;
         align-items: flex-start;
     }
-    
+
     .exercise-controls,
     .editor-controls {
         width: 100%;
     }
-    
+
     .btn {
         flex: 1;
+    }
+
+    .node-card-header,
+    .exercise-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .submission-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .breadcrumbs {
+        font-size: 12px;
+        padding: 10px 20px;
     }
 }
