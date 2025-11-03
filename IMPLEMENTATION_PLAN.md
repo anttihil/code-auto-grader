@@ -2,6 +2,28 @@
 
 This document outlines the technical development roadmap for Code Auto-Grader, organized by MVP milestones and post-MVP phases.
 
+## 📍 Quick Status
+
+**Current Phase:** Dogfooding MVP - Week 3 (Frontend UI)
+**Backend Status:** ✅ 100% Complete (Weeks 1-3)
+**Frontend Status:** ❌ Not Started
+**Overall Progress:** ~70% of Dogfooding MVP
+
+**What's Working:**
+- Database with 9 Rust exercises
+- Full API for submissions, grading, and progress tracking
+- Docker-based code execution for JS/Python/Rust
+- AI evaluation with Gemini
+
+**What's Needed:**
+- Tech tree navigation UI
+- Exercise history display
+- Integration with database APIs
+
+**Next Action:** [Jump to Week 3 Frontend Tasks](#frontend-ui--not-started)
+
+---
+
 ## Development Principles
 
 1. **Ship early, iterate fast**: Launch with one excellent tech tree path
@@ -39,23 +61,29 @@ Instead of user interviews, validated through **personal use as primary user**:
 
 **Philosophy**: Skip multi-user features, focus on core learning mechanics. Hard-code single user. Validate loop works before adding complexity.
 
-### Week 1: Database Foundation
+### Week 1: Database Foundation ✅ COMPLETE
 
 **Deliverables:**
-- [ ] PostgreSQL schema design
+- [x] PostgreSQL schema design (✅ `app/migrations/000001_init_schema.up.sql`)
   - Tech trees, nodes, node edges (DAG structure)
   - Exercises (coding only for MVP - defer other types)
-  - User progress (single hard-coded user initially)
+  - User progress (single hard-coded user: `00000000-0000-0000-0000-000000000001`)
   - Submissions (code, execution results, AI feedback, timestamps)
-- [ ] Migration scripts (using `golang-migrate`)
-- [ ] Go models/structs matching schema
-- [ ] Basic CRUD operations with `pgx`
+- [x] Migration scripts (✅ `golang-migrate` with up/down migrations)
+- [x] Go models/structs matching schema (✅ `app/models/models.go`)
+- [x] Basic CRUD operations with `pgx` (✅ All repository implementations complete)
+  - `app/repository/tech_tree_repo.go`
+  - `app/repository/node_repo.go`
+  - `app/repository/exercise_repo.go`
+  - `app/repository/submission_repo.go`
+  - `app/repository/user_progress_repo.go`
 
-**Technical Decisions:**
-- Single hard-coded user (skip auth for now)
-- Focus on coding exercises only (defer debugging, projects, conceptual)
-- Store exercise content as JSONB (flexible for future types)
-- Index on `node_id`, `exercise_id` for query performance
+**Technical Decisions Implemented:**
+- ✅ Single hard-coded user UUID in all handlers
+- ✅ JSONB content for exercises (test cases, hints, rubric)
+- ✅ Performance indexes added (`000002_add_performance_indexes.up.sql`)
+- ✅ Repository pattern with dependency injection (`app/main.go`)
+- ✅ Content seeding system (`app/cmd/seed/main.go`)
 
 **Deferred to Later:**
 - User authentication/authorization
@@ -65,60 +93,119 @@ Instead of user interviews, validated through **personal use as primary user**:
 
 ---
 
-### Week 2: Content Creation - Rust Learning Path ✅ MOSTLY COMPLETE
+### Week 2: Content Creation - Rust Learning Path ✅ COMPLETE
 
 **Deliverables:**
-- [x] Design Rust tech tree structure:
-  - 7 nodes covering fundamentals (documented in `RUST_TECH_TREE.md`)
+- [x] Design Rust tech tree structure (✅ `RUST_TECH_TREE.md`)
+  - 7 nodes covering fundamentals
   - Clear prerequisite relationships (DAG)
-- [x] Write 9 quality Rust exercises (Nodes 1-3 complete):
-  - **Node 1 (Rust Basics)**: 3 exercises - Variables, Functions, Control Flow
-  - **Node 2 (Ownership & Borrowing)**: 3 exercises - Ownership, Borrowing, Rules
-  - **Node 3 (Structs & Enums)**: 3 exercises - Structs, Methods, Enums
-  - Progressive difficulty within each node (Easy → Medium → Hard)
+- [x] Write 9 quality Rust exercises (✅ `content/rust/`)
+  - **Node 1 (Fundamentals)**: Variables, Functions, Control Flow
+  - **Node 2 (Ownership)**: Ownership Basics, Borrowing, Rules
+  - **Node 3 (Structs/Enums)**: Defining Structs, Methods, Pattern Matching
+  - Progressive difficulty within each node
   - Comprehensive test cases for automated evaluation
-  - Reference solutions included
-  - AI feedback rubrics and prompts
-- [x] Create learning materials:
-  - Detailed markdown for each exercise with explanations
-  - Code examples and hints
-  - Common mistakes and troubleshooting
-  - Links to concepts where helpful
-- [ ] Write 6 more exercises for Nodes 4-5 (Collections, Error Handling) - *DEFERRED*
-- [ ] Seed database with Rust content (blocked by database schema)
+  - Reference solutions included in exercise content
+  - AI evaluation prompts and grading rubrics
+- [x] Create structured learning materials (✅ JSON frontmatter + Markdown)
+  - Detailed explanations with code examples
+  - Hints and common mistakes
+  - Starter code and expected outputs
+- [x] Seed database with Rust content (✅ `app/cmd/seed/main.go`)
+  - Content loader system (`app/internal/content/`)
+  - JSON metadata files (`content/tech-trees.json`, `content/nodes.json`, `content/users.json`)
 
-**Quality Bar:**
-- Exercises test understanding, not just syntax memorization
-- Difficulty curve feels appropriate (not too easy/hard)
-- Materials explain "why" not just "how"
+**Quality Bar Met:**
+- ✅ Exercises test understanding, not just syntax
+- ✅ Materials explain "why" not just "how"
+- 🔄 Difficulty curve to be validated through personal use
+
+**Content Files:**
+```
+content/
+├── tech-trees.json        # Rust Fundamentals tree metadata
+├── nodes.json             # 3 nodes with prerequisites
+├── users.json            # Dogfooding user
+└── rust/
+    ├── fundamentals/     # Node 1 (3 exercises)
+    ├── ownership/        # Node 2 (3 exercises)
+    └── structs-enums/    # Node 3 (3 exercises)
+```
 
 ---
 
-### Week 3: Learning Loop Integration
+### Week 3: Learning Loop Integration 🔄 BACKEND COMPLETE, FRONTEND PENDING
 
-**Deliverables:**
-- [ ] Mastery tracking logic:
-  - Calculate scores from test results + AI feedback
-  - 80%+ threshold to count toward mastery
-  - Node marked complete when all exercises pass threshold
-- [ ] Tech tree navigation UI:
-  - Display available nodes (based on prerequisites)
-  - Show current progress per node (X/Y exercises complete)
-  - Highlight next recommended node
-  - Simple "Next Exercise" button for linear flow
-- [ ] Exercise history view:
-  - Show previous attempts for current exercise
-  - Display score progression over time
-  - Include AI feedback from past submissions
-- [ ] Enhanced AI feedback context:
-  - Fetch user's previous submissions for exercise
-  - Include recent progress across nodes
-  - Tailor feedback to observed patterns
-- [ ] Update API endpoints:
-  - `GET /api/tech-tree/:treeId` - Fetch tree structure + progress
-  - `GET /api/node/:nodeId` - Get node details + exercises
+#### **Backend APIs & Logic** ✅ COMPLETE (Including Rust Test Execution Fix)
+
+**Deliverables Completed:**
+- [x] **Rust test execution system** (✅ FIXED - `app/services/executor/executor.go`, `app/handlers/handlers.go`)
+  - Detects Rust test code (`#[test]`, `#[cfg(test)]`)
+  - Compiles with `rustc --test` flag for proper test execution
+  - Parses test runner output to extract individual test results
+  - Handles exit code 101 (tests failed) correctly
+- [x] **Mastery tracking logic** (✅ `app/handlers/handlers.go:1085-1150`)
+  - Calculates scores: 60% test results + 40% AI evaluation
+  - 80%+ threshold counts toward mastery
+  - Updates `user_progress` table with mastery status
+  - Tracks exercises completed per node
+- [x] **Test case execution** (✅ `app/handlers/handlers.go:823-877`)
+  - Runs all test cases from exercise content
+  - Combines submitted code with test code
+  - Returns detailed pass/fail results
+- [x] **AI evaluation integration** (✅ `app/handlers/handlers.go:880-914`)
+  - Uses exercise-specific evaluation prompts
+  - Returns structured feedback (score, strengths, improvements)
+  - Fallback to default prompts if not specified
+- [x] **API endpoints implemented** (✅ `app/main.go:119-127`)
+  - `GET /api/tech-tree/:treeId` - Fetch tree + all nodes + user progress
+  - `GET /api/node/:nodeId` - Get node + exercises + progress
   - `GET /api/exercise/:exerciseId` - Fetch exercise + submission history
-  - `POST /api/submission/:exerciseId` - Submit + evaluate (existing endpoint enhanced)
+  - `POST /api/submission/:exerciseId` - Submit code + run tests + AI eval + save
+
+**Technical Implementation:**
+```
+Request Flow (handlers.go:650-816):
+1. Fetch exercise from DB (including test cases, rubric)
+2. Execute all test cases (Docker containers)
+3. Calculate test score (% passed)
+4. Get AI feedback using exercise evaluation prompt
+5. Calculate total score using rubric weights
+6. Save submission with all results
+7. Update user progress and mastery tracking
+8. Return comprehensive result with attempt number
+```
+
+#### **Frontend UI** ❌ NOT STARTED
+
+**Remaining Deliverables:**
+- [ ] **Tech tree navigation page**
+  - Display "Rust Fundamentals" tree
+  - Show 3 nodes (Fundamentals → Ownership → Structs/Enums)
+  - Visual indication of locked vs available nodes
+  - Progress indicators: "2/3 exercises completed"
+- [ ] **Node detail view**
+  - List all exercises for selected node
+  - Show best score and attempt count per exercise
+  - "Start Exercise" / "Continue Exercise" buttons
+  - Visual progress: completed vs in-progress exercises
+- [ ] **Enhanced exercise view**
+  - Fetch from `/api/exercise/:exerciseId` (not legacy `/generate`)
+  - Display submission history below code editor
+  - Show score progression chart
+  - AI feedback from previous attempts
+  - "Next Exercise" button for linear flow
+- [ ] **Integration work**
+  - Replace legacy endpoints with new API calls
+  - Add client-side routing (tech tree → node → exercise)
+  - State management for navigation and progress
+  - Update SolidJS components to consume new APIs
+
+**Current State:**
+- Frontend still uses legacy `/api/exercise/generate` and `/api/submission/submit`
+- No integration with database-backed APIs
+- No tech tree or node navigation
+- No submission history display
 
 **Deferred Features:**
 - Manual progression controls (admin dashboard)
@@ -128,16 +215,30 @@ Instead of user interviews, validated through **personal use as primary user**:
 
 ---
 
-### Validation: Personal Rust Learning Test
+### Validation: Personal Rust Learning Test 🔜 READY TO START
 
 **Goal**: Complete first 1-2 nodes of Rust tech tree using the platform
 
-**Success Criteria:**
+**Prerequisites:** ✅ Backend complete, ❌ Frontend UI needed
+
+**Success Criteria (to validate after UI is built):**
 - [ ] Can navigate between exercises smoothly
 - [ ] AI feedback actually helps improve solutions
 - [ ] Progress feels visible and motivating
 - [ ] Mastery tracking accurately reflects understanding
 - [ ] No data loss (progress persists across sessions)
+
+**What Can Be Tested Now (via API):**
+- ✅ Code execution with test cases (POST `/api/submission/:exerciseId`)
+- ✅ AI evaluation quality (check feedback in responses)
+- ✅ Mastery calculation (inspect `user_progress` table)
+- ✅ Submission history tracking (GET `/api/exercise/:exerciseId`)
+
+**What Needs UI to Validate:**
+- ❌ Navigation experience (need tech tree and node views)
+- ❌ Visual progress indicators (need frontend components)
+- ❌ Exercise-to-exercise flow (need "Next Exercise" button)
+- ❌ Historical feedback comparison (need submission history UI)
 
 **Decision Point:**
 - ✅ If learning feels effective → proceed to full MVP (add multi-user support)
@@ -528,19 +629,62 @@ This plan prioritizes validation through dogfooding before scaling. The revised 
 - Content generation tools
 - Community features
 
-**Current Status:**
-- ✅ Pre-MVP validation complete (AI feedback quality confirmed)
-- ✅ Week 2 content creation MOSTLY complete (9 exercises for Nodes 1-3)
-- 🔄 **Next:** Week 1 (Database Foundation) - Design schema and integrate existing exercises
-- 📁 **Files Created:**
-  - `RUST_TECH_TREE.md` - Full 7-node learning path design
-  - `exercises/node1_*.md` - 3 exercises (Rust Basics)
-  - `exercises/node2_*.md` - 3 exercises (Ownership & Borrowing)
-  - `exercises/node3_*.md` - 3 exercises (Structs & Enums)
-  - `exercises/test_node1.rs` - Test suite for validation
+---
 
-**Key Decision Points:**
-1. After Week 3: Does the learning loop work for Rust? (Go/No-Go for multi-user)
-2. After Month 3: Are users completing nodes? (Go/No-Go for Phase 2 investment)
+## 🎯 Current Status (as of latest commit: 662b718)
+
+### ✅ **COMPLETE - Dogfooding MVP Backend (Weeks 1-2)**
+
+| Component | Status | File References |
+|-----------|--------|----------------|
+| **Database Schema** | ✅ Complete | `app/migrations/*.sql` |
+| **Repository Layer** | ✅ Complete | `app/repository/*_repo.go` |
+| **Backend APIs** | ✅ Complete | `app/handlers/handlers.go`, `app/main.go` |
+| **Content System** | ✅ Complete | `content/rust/*`, `app/cmd/seed/main.go` |
+| **Code Execution** | ✅ Complete | `app/services/executor/*` |
+| **AI Evaluation** | ✅ Complete | `app/services/gemini.go` |
+| **Mastery Tracking** | ✅ Complete | `handlers.go:1085-1150` |
+| **Rust Exercises** | ✅ Complete | 9 exercises across 3 nodes |
+
+### 🔄 **IN PROGRESS - Week 3 Frontend UI**
+
+**Blocking Validation:**
+- ❌ Tech tree navigation UI
+- ❌ Node detail views
+- ❌ Exercise history display
+- ❌ Frontend integration with database APIs
+
+**Current State:**
+- Legacy prototype UI still in use (`web/src/App.tsx`)
+- No connection to backend database APIs
+- Cannot start personal Rust learning validation without UI
+
+### 🎯 **Immediate Next Steps**
+
+**To Complete Dogfooding MVP:**
+1. Build tech tree navigation page (SolidJS component)
+2. Create node detail view with exercise list
+3. Update exercise view to show submission history
+4. Replace legacy API calls with database endpoints
+5. Add "Next Exercise" navigation flow
+6. **Then:** Begin personal Rust learning validation
+
+**After Validation:**
+- If successful → proceed to multi-user MVP
+- If needs iteration → refine based on personal learning experience
+
+### 📊 **Completion Summary**
+
+**Weeks 1-2 Backend:** 100% ✅
+**Week 3 Backend:** 100% ✅
+**Week 3 Frontend:** 0% ❌
+**Overall Dogfooding MVP:** ~70% complete
+
+**Est. Time to Completion:** 1-2 days of focused frontend work
+
+### 🔑 **Key Decision Points**
+
+1. **After Week 3 Complete:** Does the learning loop work for Rust? (Go/No-Go for multi-user)
+2. **After Month 3:** Are users completing nodes? (Go/No-Go for Phase 2 investment)
 
 See `BUSINESS_PLAN.md` for monetization strategy and go-to-market approach.
