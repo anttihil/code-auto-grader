@@ -165,7 +165,7 @@ func HealthCheck(c echo.Context) error {
 
 // GetSampleExercise returns a sample coding exercise
 func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
-	sampleExercise := map[string]interface{}{
+	sampleExercise := map[string]any{
 		"title":       "Sum Two Numbers",
 		"description": "Write a function that takes two numbers as parameters and returns their sum.",
 		"difficulty":  "beginner",
@@ -184,7 +184,7 @@ func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 		},
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":  true,
 		"exercise": sampleExercise,
 	})
@@ -617,7 +617,7 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 
 	// Calculate best score
 	var bestScore *int
-	if submissions != nil && len(submissions) > 0 {
+	if len(submissions) > 0 {
 		for _, sub := range submissions {
 			if sub.TotalScore != nil {
 				if bestScore == nil || *sub.TotalScore > *bestScore {
@@ -760,10 +760,17 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 
 	totalScore := (testScore*testWeight + aiScore*aiWeight) / totalWeight
 
+	// Scale AI score to match the weight (0-40) for database storage
+	// AI returns 0-100, but database expects it scaled to the AI weight
+	aiScoreScaled := (aiScore * aiWeight) / 100
+	testScoreScaled := (testScore * testWeight) / 100
+
 	logger.Logger.Info("final score calculated",
 		slog.String("request_id", requestID),
 		slog.Int("test_score", testScore),
 		slog.Int("ai_score", aiScore),
+		slog.Int("test_score_scaled", testScoreScaled),
+		slog.Int("ai_score_scaled", aiScoreScaled),
 		slog.Int("total_score", totalScore),
 		slog.Int("test_weight", testWeight),
 		slog.Int("ai_weight", aiWeight),
@@ -772,8 +779,8 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 	// 5. Save submission to database
 	submission, err := h.saveSubmission(ctx, userID, exerciseID, req.Code, req.Language,
 		&executionOutput, executionError, &executionTimeMs,
-		testResults, &aiFeedback, &aiScore, &aiEvaluationTimeMs,
-		&testScore, &totalScore, requestID)
+		testResults, &aiFeedback, &aiScoreScaled, &aiEvaluationTimeMs,
+		&testScoreScaled, &totalScore, requestID)
 	if err != nil {
 		logger.Logger.Error("failed to save submission",
 			slog.String("request_id", requestID),
@@ -821,6 +828,12 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 
 // runTestCases executes all test cases and returns results
 func (h *SubmissionHandler) runTestCases(ctx context.Context, submittedCode, language string, testCases []models.TestCase, requestID string) (*models.TestResults, string, *string, int) {
+	// For Rust, run all tests together in one compilation
+	if strings.ToLower(language) == "rust" {
+		return h.runRustTests(ctx, submittedCode, testCases, requestID)
+	}
+
+	// For other languages, run tests individually (existing behavior)
 	results := &models.TestResults{
 		TotalTests:  len(testCases),
 		PassedTests: 0,
@@ -874,6 +887,141 @@ func (h *SubmissionHandler) runTestCases(ctx context.Context, submittedCode, lan
 
 	output := combinedOutput.String()
 	return results, output, lastError, totalExecutionTime
+}
+
+// runRustTests runs all Rust tests in a single compilation
+func (h *SubmissionHandler) runRustTests(ctx context.Context, submittedCode string, testCases []models.TestCase, requestID string) (*models.TestResults, string, *string, int) {
+	results := &models.TestResults{
+		TotalTests:  len(testCases),
+		PassedTests: 0,
+		FailedTests: 0,
+		Results:     make([]models.TestResult, 0, len(testCases)),
+	}
+
+	// Build complete Rust test file
+	var codeBuilder strings.Builder
+	codeBuilder.WriteString(submittedCode)
+	codeBuilder.WriteString("\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n")
+
+	// Add all test cases
+	for _, testCase := range testCases {
+		// Extract test function from testCase.Code (remove #[test] and outer wrapping if present)
+		testCode := testCase.Code
+		// Simple approach: just append the test code
+		codeBuilder.WriteString("    ")
+		codeBuilder.WriteString(strings.ReplaceAll(testCode, "\n", "\n    "))
+		codeBuilder.WriteString("\n\n")
+	}
+
+	codeBuilder.WriteString("}\n")
+	completeCode := codeBuilder.String()
+
+	logger.Logger.Debug("running Rust tests",
+		slog.String("request_id", requestID),
+		slog.Int("test_count", len(testCases)),
+	)
+
+	// Execute all tests together
+	startTime := time.Now()
+	execResult := h.codeExecutor.ExecuteCodeWithContext(ctx, completeCode, "rust")
+	totalExecutionTime := int(time.Since(startTime).Milliseconds())
+
+	// Parse test output
+	if !execResult.Success {
+		// Compilation error or runtime panic
+		errorMsg := execResult.Error
+		return results, execResult.Error, &errorMsg, totalExecutionTime
+	}
+
+	// Parse Rust test output
+	output := execResult.Output
+	testResults := parseRustTestOutput(output, testCases)
+
+	// Build results
+	var combinedOutput strings.Builder
+	combinedOutput.WriteString(output)
+	combinedOutput.WriteString("\n\n=== Individual Test Results ===\n")
+
+	var lastError *string
+	for _, tr := range testResults {
+		results.Results = append(results.Results, tr)
+		if tr.Status == "passed" {
+			results.PassedTests++
+			combinedOutput.WriteString(fmt.Sprintf("✓ %s: PASSED\n", tr.Name))
+		} else {
+			results.FailedTests++
+			combinedOutput.WriteString(fmt.Sprintf("✗ %s: FAILED\n", tr.Name))
+			if tr.Error != nil {
+				combinedOutput.WriteString(fmt.Sprintf("  Error: %s\n", *tr.Error))
+				lastError = tr.Error
+			}
+		}
+	}
+
+	return results, combinedOutput.String(), lastError, totalExecutionTime
+}
+
+// parseRustTestOutput parses Rust test runner output to extract individual test results
+func parseRustTestOutput(output string, testCases []models.TestCase) []models.TestResult {
+	results := make([]models.TestResult, 0, len(testCases))
+
+	// Parse lines like: "test tests::test_name ... ok" or "test tests::test_name ... FAILED"
+	lines := strings.Split(output, "\n")
+	testResultsMap := make(map[string]models.TestResult)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "test ") {
+			continue
+		}
+
+		// Extract test name and status
+		// Format: "test tests::test_name ... ok" or "test tests::test_name ... FAILED"
+		parts := strings.Fields(line)
+		if len(parts) < 4 {
+			continue
+		}
+
+		testFullName := parts[1] // e.g., "tests::test_name"
+		status := parts[len(parts)-1] // e.g., "ok" or "FAILED"
+
+		// Extract short name (after "::")
+		nameParts := strings.Split(testFullName, "::")
+		shortName := nameParts[len(nameParts)-1]
+
+		result := models.TestResult{
+			Name: shortName,
+		}
+
+		switch status {
+			case "ok":
+				result.Status = "passed"
+			case "FAILED":
+				result.Status = "failed"
+				// TODO: Extract error message from failure output
+				errorMsg := "Test assertion failed"
+				result.Error = &errorMsg
+		}
+
+		testResultsMap[shortName] = result
+	}
+
+	// Match test cases with results
+	for _, testCase := range testCases {
+		if result, found := testResultsMap[testCase.Name]; found {
+			results = append(results, result)
+		} else {
+			// Test didn't run (compilation error?)
+			errorMsg := "Test did not run"
+			results = append(results, models.TestResult{
+				Name:   testCase.Name,
+				Status: "failed",
+				Error:  &errorMsg,
+			})
+		}
+	}
+
+	return results
 }
 
 // evaluateWithAI gets AI feedback and score for the submission

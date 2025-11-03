@@ -286,18 +286,34 @@ func (p *ParsedExercise) ToExercise() (*Exercise, error) {
 func parseTestCases(testCode string) []TestCase {
 	var testCases []TestCase
 
-	// Extract #[test] functions
-	re := regexp.MustCompile(`(?s)#\[test\]\s+fn\s+(\w+)\s*\(\)\s*\{([^}]+)\}`)
-	matches := re.FindAllStringSubmatch(testCode, -1)
+	// Extract #[test] functions using a more robust approach
+	// Find all #[test] positions
+	testAttrRe := regexp.MustCompile(`#\[test\]\s+fn\s+(\w+)\s*\(\)\s*\{`)
+	matches := testAttrRe.FindAllStringSubmatchIndex(testCode, -1)
 
 	for _, match := range matches {
-		if len(match) > 2 {
-			name := match[1]
-			body := strings.TrimSpace(match[2])
+		name := testCode[match[2]:match[3]]
+		bodyStart := match[1] // Position after the opening {
+
+		// Find matching closing brace by counting braces
+		braceCount := 1
+		bodyEnd := bodyStart
+		for bodyEnd < len(testCode) && braceCount > 0 {
+			if testCode[bodyEnd] == '{' {
+				braceCount++
+			} else if testCode[bodyEnd] == '}' {
+				braceCount--
+			}
+			bodyEnd++
+		}
+
+		if braceCount == 0 {
+			// Extract the complete function
+			fullFunc := testCode[match[0]:bodyEnd]
 
 			testCases = append(testCases, TestCase{
 				Name:    name,
-				Code:    fmt.Sprintf("#[test]\nfn %s() {\n%s\n}", name, body),
+				Code:    strings.TrimSpace(fullFunc),
 				Visible: true, // All visible by default
 			})
 		}

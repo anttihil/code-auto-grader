@@ -253,14 +253,30 @@ func (s *CodeExecutionService) executeInPooledContainer(ctx context.Context, cod
 
 	if config.RequiresCompile {
 		// Compiled languages (e.g., Rust)
-		// Use trap to ensure cleanup runs even on failure
+		// Check if this is Rust test code
+		isRustTest := pool.language == "rust" && (strings.Contains(code, "#[test]") || strings.Contains(code, "#[cfg(test)]"))
+
 		programPath := "/workspace/tmp/program"
-		execScript := fmt.Sprintf(`
+		var execScript string
+
+		if isRustTest {
+			// Rust test mode: compile with --test flag and run test binary
+			execScript = fmt.Sprintf(`
+cleanup() { rm -f %s %s 2>/dev/null; }
+trap cleanup EXIT
+export TMPDIR=/workspace/tmp
+cat > %s && %s --test %s -o %s 2>&1 && %s 2>&1; test_exit=$?; exit $test_exit`,
+				containerPath, programPath, containerPath, config.Compiler, containerPath, programPath, programPath)
+		} else {
+			// Regular compilation mode
+			execScript = fmt.Sprintf(`
 cleanup() { rm -f %s %s 2>/dev/null; }
 trap cleanup EXIT
 export TMPDIR=/workspace/tmp
 cat > %s && %s %s -o %s 2>&1 && %s 2>&1`,
-			containerPath, programPath, containerPath, config.Compiler, containerPath, programPath, programPath)
+				containerPath, programPath, containerPath, config.Compiler, containerPath, programPath, programPath)
+		}
+
 		execCmd = exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "sh", "-c", execScript)
 	} else {
 		// Interpreted languages (e.g., JavaScript, Python)
@@ -307,6 +323,18 @@ cat > %s && %s %s 2>&1`,
 	// Check for execution errors
 	if err != nil {
 		errorMsg := string(output)
+
+		// For Rust tests, exit code 101 means "tests ran but some failed"
+		// This is actually success from an execution perspective
+		isRustTest := pool.language == "rust" && (strings.Contains(code, "#[test]") || strings.Contains(code, "#[cfg(test)]"))
+		if isRustTest && strings.Contains(errorMsg, "test result:") {
+			// Test runner completed successfully, return output even though exit code != 0
+			return ExecutionResult{
+				Success:       true,
+				Output:        errorMsg,
+				ExecutionTime: fmt.Sprintf("%.2fs", dockerDuration.Seconds()),
+			}
+		}
 
 		// For compiled languages, detect compilation vs runtime errors
 		if config.RequiresCompile {
