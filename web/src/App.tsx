@@ -785,15 +785,15 @@ function App() {
 
                               <Show
                                 when={
-                                  submission.ai_feedback.strengths &&
-                                  submission.ai_feedback.strengths.length > 0
+                                  submission.ai_feedback?.strengths &&
+                                  submission.ai_feedback?.strengths.length > 0
                                 }
                               >
                                 <div class="feedback-section">
                                   <h5>✓ Strengths:</h5>
                                   <ul>
                                     <For
-                                      each={submission.ai_feedback.strengths}
+                                      each={submission.ai_feedback?.strengths}
                                     >
                                       {(strength) => <li>{strength}</li>}
                                     </For>
@@ -803,15 +803,18 @@ function App() {
 
                               <Show
                                 when={
-                                  submission.ai_feedback.improvements &&
-                                  submission.ai_feedback.improvements.length > 0
+                                  submission.ai_feedback?.improvements &&
+                                  submission.ai_feedback?.improvements.length >
+                                    0
                                 }
                               >
                                 <div class="feedback-section">
                                   <h5>→ Areas for Improvement:</h5>
                                   <ul>
                                     <For
-                                      each={submission.ai_feedback.improvements}
+                                      each={
+                                        submission.ai_feedback?.improvements
+                                      }
                                     >
                                       {(improvement) => <li>{improvement}</li>}
                                     </For>
@@ -819,10 +822,10 @@ function App() {
                                 </div>
                               </Show>
 
-                              <Show when={submission.ai_feedback.suggestions}>
+                              <Show when={submission.ai_feedback?.suggestions}>
                                 <div class="feedback-section">
                                   <h5>💡 Suggestions:</h5>
-                                  <p>{submission.ai_feedback.suggestions}</p>
+                                  <p>{submission.ai_feedback?.suggestions}</p>
                                 </div>
                               </Show>
                             </div>
