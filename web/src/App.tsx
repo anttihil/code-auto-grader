@@ -9,6 +9,9 @@ interface TechTree {
   name: string;
   description: string;
   created_at: string;
+  language: string;
+  difficulty_level: string;
+  estimated_hours: number;
 }
 
 interface Node {
@@ -20,6 +23,12 @@ interface Node {
   created_at: string;
 }
 
+interface Hint {
+  order: number;
+  title: string;
+  content: string;
+}
+
 interface Exercise {
   id: string;
   node_id: string;
@@ -29,11 +38,13 @@ interface Exercise {
   order_index: number;
   content: {
     starter_code?: string;
-    language?: string;
+    reference_solution?: string;
     test_cases?: TestCase[];
-    hints?: string[];
-    learning_objectives?: string[];
-    evaluation_prompt?: string;
+    hints?: Hint[];
+    grading_rubric?: any;
+    ai_evaluation_prompt?: string;
+    common_mistakes?: any[];
+    expected_outcomes?: string[];
   };
   created_at: string;
 }
@@ -223,7 +234,14 @@ function App() {
       console.log("Loaded exercise data:", data);
 
       if (data.success) {
-        setCurrentExercise(data.exercise);
+        // Merge exercise with submission history data
+        const exerciseWithHistory: ExerciseWithHistory = {
+          ...data.exercise,
+          submissions: data.submissions || [],
+          best_score: data.best_score || 0,
+          attempt_count: data.attempt_count || 0,
+        };
+        setCurrentExercise(exerciseWithHistory);
         // Set starter code
         if (data.exercise.content?.starter_code) {
           setCode(data.exercise.content.starter_code);
@@ -248,7 +266,8 @@ function App() {
 
   const runCode = async () => {
     const exercise = currentExercise();
-    if (!exercise || !code().trim()) {
+    const language = techTree()?.language || "";
+    if (!exercise || !language || !code().trim()) {
       setOutputClass("output error");
       setOutput("Please write some code first.");
       return;
@@ -259,7 +278,6 @@ function App() {
     setOutput("Running code...");
 
     try {
-      const language = exercise.content?.language || "rust";
       const response = await fetch("/api/submission/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,14 +309,15 @@ function App() {
 
   const submitCode = async () => {
     const exercise = currentExercise();
-    if (!exercise || !code().trim()) {
+    const language = techTree()?.language || "";
+
+    if (!exercise || !language || !code().trim()) {
       alert("Please write some code first.");
       return;
     }
 
     setLoading(true);
     try {
-      const language = exercise.content?.language || "rust";
       const response = await fetch(`/api/submission/${exercise.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -580,7 +599,7 @@ function App() {
                       {currentExercise()!.difficulty}
                     </span>
                     <span class="language-badge">
-                      {currentExercise()!.content?.language || "rust"}
+                      {techTree()?.language || "No Language"}
                     </span>
                     <Show when={currentExercise()!.best_score > 0}>
                       <span
@@ -606,17 +625,17 @@ function App() {
 
                   <Show
                     when={
-                      currentExercise()!.content?.learning_objectives &&
-                      currentExercise()!.content.learning_objectives!.length > 0
+                      currentExercise()!.content?.expected_outcomes &&
+                      currentExercise()!.content.expected_outcomes!.length > 0
                     }
                   >
                     <div class="learning-objectives">
-                      <h4>Learning Objectives:</h4>
+                      <h4>Expected Outcomes:</h4>
                       <ul>
                         <For
-                          each={currentExercise()!.content.learning_objectives}
+                          each={currentExercise()!.content.expected_outcomes}
                         >
-                          {(objective) => <li>{objective}</li>}
+                          {(outcome) => <li>{outcome}</li>}
                         </For>
                       </ul>
                     </div>
@@ -633,7 +652,11 @@ function App() {
                         <summary>💡 Show Hints</summary>
                         <ul>
                           <For each={currentExercise()!.content.hints}>
-                            {(hint) => <li>{hint}</li>}
+                            {(hint) => (
+                              <li>
+                                <strong>{hint.title}:</strong> {hint.content}
+                              </li>
+                            )}
                           </For>
                         </ul>
                       </details>
