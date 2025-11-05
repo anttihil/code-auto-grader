@@ -58,12 +58,12 @@ interface Submission {
   id: string;
   exercise_id: string;
   user_id: string;
-  code: string;
+  submitted_code: string;
   language: string;
   test_results: {
-    total: number;
-    passed: number;
-    failed: number;
+    total_tests: number;
+    passed_tests: number;
+    failed_tests: number;
     details: TestResult[];
   };
   ai_feedback: {
@@ -72,6 +72,10 @@ interface Submission {
     improvements: string[];
     suggestions: string;
   };
+  ai_score: number;
+  execution_time_ms: number;
+  ai_evaluation_time_ms: number;
+  attempt_number: number;
   total_score: number;
   created_at: string;
 }
@@ -744,8 +748,9 @@ function App() {
                             {/* Test Results */}
                             <div class="test-results">
                               <h4>
-                                Test Results: {submission.test_results.passed}/
-                                {submission.test_results.total} passed
+                                Test Results:{" "}
+                                {submission.test_results.passed_tests}/
+                                {submission.test_results.total_tests} passed
                               </h4>
                               <div class="test-results-list">
                                 <For each={submission.test_results.details}>
@@ -774,7 +779,8 @@ function App() {
                             <div class="ai-feedback">
                               <h4>
                                 AI Feedback (Score:{" "}
-                                {submission.ai_feedback.score}%)
+                                {/* TODO: AI score from the backend reflects 40% weight of total score */}
+                                {(submission.ai_score / 40) * 100}%)
                               </h4>
 
                               <Show
@@ -825,7 +831,7 @@ function App() {
                             <details class="submission-code">
                               <summary>View Code</summary>
                               <pre>
-                                <code>{submission.code}</code>
+                                <code>{submission.submitted_code}</code>
                               </pre>
                             </details>
                           </div>
