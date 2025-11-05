@@ -110,8 +110,11 @@ function App() {
 
   // Data State
   const [techTree, setTechTree] = createSignal<TechTreeWithNodes | null>(null);
-  const [currentNode, setCurrentNode] = createSignal<NodeWithProgress | null>(null);
-  const [currentExercise, setCurrentExercise] = createSignal<ExerciseWithHistory | null>(null);
+  const [currentNode, setCurrentNode] = createSignal<NodeWithProgress | null>(
+    null
+  );
+  const [currentExercise, setCurrentExercise] =
+    createSignal<ExerciseWithHistory | null>(null);
 
   // Editor State
   const [code, setCode] = createSignal("// Write your code here\n");
@@ -148,7 +151,9 @@ function App() {
     const currentEx = currentExercise();
     if (!node || !node.exercises || !currentEx) return;
 
-    const currentIndex = node.exercises.findIndex(ex => ex.id === currentEx.id);
+    const currentIndex = node.exercises.findIndex(
+      (ex) => ex.id === currentEx.id
+    );
     if (currentIndex >= 0 && currentIndex < node.exercises.length - 1) {
       navigateToExercise(node.exercises[currentIndex + 1].id);
     } else {
@@ -169,8 +174,10 @@ function App() {
       if (!response.ok) throw new Error("Failed to load tech tree");
       const data = await response.json();
 
+      console.log("Loaded tech tree data:", data);
+
       if (data.success) {
-        setTechTree(data.tree);
+        setTechTree(data);
       } else {
         setError(data.error || "Failed to load tech tree");
       }
@@ -190,8 +197,10 @@ function App() {
       if (!response.ok) throw new Error("Failed to load node");
       const data = await response.json();
 
+      console.log("Loaded node data:", data);
+
       if (data.success) {
-        setCurrentNode(data.node);
+        setCurrentNode(data);
       } else {
         setError(data.error || "Failed to load node");
       }
@@ -210,6 +219,8 @@ function App() {
       const response = await fetch(`/api/exercise/${exerciseId}`);
       if (!response.ok) throw new Error("Failed to load exercise");
       const data = await response.json();
+
+      console.log("Loaded exercise data:", data);
 
       if (data.success) {
         setCurrentExercise(data.exercise);
@@ -300,8 +311,8 @@ function App() {
         await loadExercise(exercise.id);
         // Scroll to feedback section
         setTimeout(() => {
-          const feedbackSection = document.querySelector('.submission-history');
-          feedbackSection?.scrollIntoView({ behavior: 'smooth' });
+          const feedbackSection = document.querySelector(".submission-history");
+          feedbackSection?.scrollIntoView({ behavior: "smooth" });
         }, 100);
       } else {
         alert(data.error || "Failed to submit code. Please try again.");
@@ -372,20 +383,30 @@ function App() {
       {/* Navigation Breadcrumbs */}
       <Show when={currentView() !== "tech-tree"}>
         <div class="breadcrumbs">
-          <button class="breadcrumb-link" onClick={() => navigateToTechTree(currentTechTreeId())}>
+          <button
+            class="breadcrumb-link"
+            onClick={() => navigateToTechTree(currentTechTreeId())}
+          >
             {techTree()?.name || "Tech Tree"}
           </button>
           <Show when={currentView() === "exercise"}>
             <span class="breadcrumb-separator">→</span>
-            <button class="breadcrumb-link" onClick={() => navigateToNode(currentNodeId())}>
+            <button
+              class="breadcrumb-link"
+              onClick={() => navigateToNode(currentNodeId())}
+            >
               {currentNode()?.name || "Node"}
             </button>
             <span class="breadcrumb-separator">→</span>
-            <span class="breadcrumb-current">{currentExercise()?.title || "Exercise"}</span>
+            <span class="breadcrumb-current">
+              {currentExercise()?.title || "Exercise"}
+            </span>
           </Show>
           <Show when={currentView() === "node-detail"}>
             <span class="breadcrumb-separator">→</span>
-            <span class="breadcrumb-current">{currentNode()?.name || "Node"}</span>
+            <span class="breadcrumb-current">
+              {currentNode()?.name || "Node"}
+            </span>
           </Show>
         </div>
       </Show>
@@ -412,14 +433,19 @@ function App() {
                 <For each={techTree()!.nodes}>
                   {(node, index) => {
                     const progress = node.progress;
-                    const isLocked = progress ? !progress.is_unlocked : index() > 0;
+                    const isLocked = progress
+                      ? !progress.is_unlocked
+                      : index() > 0;
                     const isComplete = progress?.mastery_achieved || false;
-                    const exercisesCompleted = progress?.exercises_completed || 0;
+                    const exercisesCompleted =
+                      progress?.exercises_completed || 0;
                     const totalExercises = progress?.total_exercises || 0;
 
                     return (
                       <div
-                        class={`node-card ${isLocked ? 'locked' : ''} ${isComplete ? 'complete' : ''}`}
+                        class={`node-card ${isLocked ? "locked" : ""} ${
+                          isComplete ? "complete" : ""
+                        }`}
                         onClick={() => !isLocked && navigateToNode(node.id)}
                       >
                         <div class="node-card-header">
@@ -439,7 +465,14 @@ function App() {
                           <div class="progress-bar">
                             <div
                               class="progress-fill"
-                              style={{ width: `${totalExercises > 0 ? (exercisesCompleted / totalExercises) * 100 : 0}%` }}
+                              style={{
+                                width: `${
+                                  totalExercises > 0
+                                    ? (exercisesCompleted / totalExercises) *
+                                      100
+                                    : 0
+                                }%`,
+                              }}
                             />
                           </div>
                         </Show>
@@ -472,7 +505,9 @@ function App() {
                       <div class="mastery-badge">✅ Mastery Achieved!</div>
                     </Show>
                     <div class="progress-stats">
-                      Exercises Completed: {currentNode()!.progress!.exercises_completed} / {currentNode()!.progress!.total_exercises}
+                      Exercises Completed:{" "}
+                      {currentNode()!.progress!.exercises_completed} /{" "}
+                      {currentNode()!.progress!.total_exercises}
                     </div>
                   </div>
                 </Show>
@@ -488,7 +523,7 @@ function App() {
 
                     return (
                       <div
-                        class={`exercise-card ${isComplete ? 'complete' : ''}`}
+                        class={`exercise-card ${isComplete ? "complete" : ""}`}
                         onClick={() => navigateToExercise(exercise.id)}
                       >
                         <div class="exercise-card-header">
@@ -501,7 +536,15 @@ function App() {
                               {exercise.difficulty}
                             </span>
                             <Show when={bestScore > 0}>
-                              <span class={`score-badge ${bestScore >= 80 ? 'high' : bestScore >= 60 ? 'medium' : 'low'}`}>
+                              <span
+                                class={`score-badge ${
+                                  bestScore >= 80
+                                    ? "high"
+                                    : bestScore >= 60
+                                    ? "medium"
+                                    : "low"
+                                }`}
+                              >
                                 Best: {bestScore}%
                               </span>
                             </Show>
@@ -509,7 +552,9 @@ function App() {
                         </div>
                         <p>{exercise.description}</p>
                         <button class="btn btn-primary">
-                          {bestScore > 0 ? 'Continue Exercise' : 'Start Exercise'}
+                          {bestScore > 0
+                            ? "Continue Exercise"
+                            : "Start Exercise"}
                         </button>
                       </div>
                     );
@@ -538,7 +583,15 @@ function App() {
                       {currentExercise()!.content?.language || "rust"}
                     </span>
                     <Show when={currentExercise()!.best_score > 0}>
-                      <span class={`score-badge ${currentExercise()!.best_score >= 80 ? 'high' : currentExercise()!.best_score >= 60 ? 'medium' : 'low'}`}>
+                      <span
+                        class={`score-badge ${
+                          currentExercise()!.best_score >= 80
+                            ? "high"
+                            : currentExercise()!.best_score >= 60
+                            ? "medium"
+                            : "low"
+                        }`}
+                      >
                         Best: {currentExercise()!.best_score}%
                       </span>
                     </Show>
@@ -551,18 +604,30 @@ function App() {
                 <div class="exercise-content">
                   <p>{currentExercise()!.description}</p>
 
-                  <Show when={currentExercise()!.content?.learning_objectives && currentExercise()!.content.learning_objectives!.length > 0}>
+                  <Show
+                    when={
+                      currentExercise()!.content?.learning_objectives &&
+                      currentExercise()!.content.learning_objectives!.length > 0
+                    }
+                  >
                     <div class="learning-objectives">
                       <h4>Learning Objectives:</h4>
                       <ul>
-                        <For each={currentExercise()!.content.learning_objectives}>
+                        <For
+                          each={currentExercise()!.content.learning_objectives}
+                        >
                           {(objective) => <li>{objective}</li>}
                         </For>
                       </ul>
                     </div>
                   </Show>
 
-                  <Show when={currentExercise()!.content?.hints && currentExercise()!.content.hints!.length > 0}>
+                  <Show
+                    when={
+                      currentExercise()!.content?.hints &&
+                      currentExercise()!.content.hints!.length > 0
+                    }
+                  >
                     <div class="hints">
                       <details>
                         <summary>💡 Show Hints</summary>
@@ -604,7 +669,9 @@ function App() {
 
                 <div class="output-section">
                   <h3>Output</h3>
-                  <div class={outputClass()}>{output() || "Run your code to see output here..."}</div>
+                  <div class={outputClass()}>
+                    {output() || "Run your code to see output here..."}
+                  </div>
                 </div>
               </div>
 
@@ -612,10 +679,14 @@ function App() {
               <div class="submission-history">
                 <h2>Submission History</h2>
                 <Show
-                  when={currentExercise()!.submissions && currentExercise()!.submissions.length > 0}
+                  when={
+                    currentExercise()!.submissions &&
+                    currentExercise()!.submissions.length > 0
+                  }
                   fallback={
                     <p class="info-message">
-                      No submissions yet. Submit your code to receive AI-powered feedback and grading.
+                      No submissions yet. Submit your code to receive AI-powered
+                      feedback and grading.
                     </p>
                   }
                 >
@@ -624,10 +695,23 @@ function App() {
                       {(submission, index) => (
                         <div class="submission-card">
                           <div class="submission-header">
-                            <h3>Attempt #{currentExercise()!.submissions.length - index()}</h3>
+                            <h3>
+                              Attempt #
+                              {currentExercise()!.submissions.length - index()}
+                            </h3>
                             <div class="submission-meta">
-                              <span class="submission-date">{formatDate(submission.created_at)}</span>
-                              <span class={`submission-score ${submission.total_score >= 80 ? 'high' : submission.total_score >= 60 ? 'medium' : 'low'}`}>
+                              <span class="submission-date">
+                                {formatDate(submission.created_at)}
+                              </span>
+                              <span
+                                class={`submission-score ${
+                                  submission.total_score >= 80
+                                    ? "high"
+                                    : submission.total_score >= 60
+                                    ? "medium"
+                                    : "low"
+                                }`}
+                              >
                                 Score: {submission.total_score}%
                               </span>
                             </div>
@@ -636,15 +720,26 @@ function App() {
                           <div class="submission-details">
                             {/* Test Results */}
                             <div class="test-results">
-                              <h4>Test Results: {submission.test_results.passed}/{submission.test_results.total} passed</h4>
+                              <h4>
+                                Test Results: {submission.test_results.passed}/
+                                {submission.test_results.total} passed
+                              </h4>
                               <div class="test-results-list">
                                 <For each={submission.test_results.details}>
                                   {(test) => (
-                                    <div class={`test-result ${test.passed ? 'passed' : 'failed'}`}>
-                                      <span class="test-icon">{test.passed ? '✅' : '❌'}</span>
+                                    <div
+                                      class={`test-result ${
+                                        test.passed ? "passed" : "failed"
+                                      }`}
+                                    >
+                                      <span class="test-icon">
+                                        {test.passed ? "✅" : "❌"}
+                                      </span>
                                       <span class="test-name">{test.name}</span>
                                       <Show when={test.error}>
-                                        <div class="test-error">{test.error}</div>
+                                        <div class="test-error">
+                                          {test.error}
+                                        </div>
                                       </Show>
                                     </div>
                                   )}
@@ -654,24 +749,41 @@ function App() {
 
                             {/* AI Feedback */}
                             <div class="ai-feedback">
-                              <h4>AI Feedback (Score: {submission.ai_feedback.score}%)</h4>
+                              <h4>
+                                AI Feedback (Score:{" "}
+                                {submission.ai_feedback.score}%)
+                              </h4>
 
-                              <Show when={submission.ai_feedback.strengths && submission.ai_feedback.strengths.length > 0}>
+                              <Show
+                                when={
+                                  submission.ai_feedback.strengths &&
+                                  submission.ai_feedback.strengths.length > 0
+                                }
+                              >
                                 <div class="feedback-section">
                                   <h5>✓ Strengths:</h5>
                                   <ul>
-                                    <For each={submission.ai_feedback.strengths}>
+                                    <For
+                                      each={submission.ai_feedback.strengths}
+                                    >
                                       {(strength) => <li>{strength}</li>}
                                     </For>
                                   </ul>
                                 </div>
                               </Show>
 
-                              <Show when={submission.ai_feedback.improvements && submission.ai_feedback.improvements.length > 0}>
+                              <Show
+                                when={
+                                  submission.ai_feedback.improvements &&
+                                  submission.ai_feedback.improvements.length > 0
+                                }
+                              >
                                 <div class="feedback-section">
                                   <h5>→ Areas for Improvement:</h5>
                                   <ul>
-                                    <For each={submission.ai_feedback.improvements}>
+                                    <For
+                                      each={submission.ai_feedback.improvements}
+                                    >
                                       {(improvement) => <li>{improvement}</li>}
                                     </For>
                                   </ul>
@@ -689,7 +801,9 @@ function App() {
                             {/* Code Display */}
                             <details class="submission-code">
                               <summary>View Code</summary>
-                              <pre><code>{submission.code}</code></pre>
+                              <pre>
+                                <code>{submission.code}</code>
+                              </pre>
                             </details>
                           </div>
                         </div>
@@ -701,7 +815,10 @@ function App() {
 
               {/* Next Exercise Button */}
               <div class="exercise-navigation">
-                <button class="btn btn-primary btn-large" onClick={navigateToNextExercise}>
+                <button
+                  class="btn btn-primary btn-large"
+                  onClick={navigateToNextExercise}
+                >
                   Next Exercise →
                 </button>
               </div>
