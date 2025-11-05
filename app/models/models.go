@@ -49,12 +49,12 @@ type TechTree struct {
 type Node struct {
 	ID                 uuid.UUID    `db:"id" json:"id"`
 	TechTreeID         uuid.UUID    `db:"tech_tree_id" json:"tech_tree_id"`
-	Name               string       `db:"name" json:"name"`
-	Slug               string       `db:"slug" json:"slug"`
-	Description        *string      `db:"description" json:"description,omitempty"`
-	LearningObjectives StringArray  `db:"learning_objectives" json:"learning_objectives"`
-	OrderIndex         int          `db:"order_index" json:"order_index"`
-	EstimatedMinutes   *int         `db:"estimated_minutes" json:"estimated_minutes,omitempty"`
+	Name               string   `db:"name" json:"name"`
+	Slug               string   `db:"slug" json:"slug"`
+	Description        *string  `db:"description" json:"description,omitempty"`
+	LearningObjectives []string `db:"learning_objectives" json:"learning_objectives"`
+	OrderIndex         int      `db:"order_index" json:"order_index"`
+	EstimatedMinutes   *int     `db:"estimated_minutes" json:"estimated_minutes,omitempty"`
 	CreatedAt          time.Time    `db:"created_at" json:"created_at"`
 	UpdatedAt          time.Time    `db:"updated_at" json:"updated_at"`
 }
@@ -291,10 +291,21 @@ func (sa *StringArray) parsePostgresArray(s string) error {
 
 // Implement driver.Valuer for StringArray
 func (sa StringArray) Value() (driver.Value, error) {
-	if sa == nil {
+	if len(sa) == 0 {
 		return nil, nil
 	}
-	return json.Marshal(sa)
+
+	// Format as PostgreSQL array: {elem1,elem2,elem3}
+	// Escape double quotes and wrap elements in quotes
+	quoted := make([]string, len(sa))
+	for i, s := range sa {
+		// Escape quotes and backslashes
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `"`, `\"`)
+		quoted[i] = `"` + s + `"`
+	}
+
+	return "{" + strings.Join(quoted, ",") + "}", nil
 }
 
 // ============================================
