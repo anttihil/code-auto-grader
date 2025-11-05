@@ -151,6 +151,41 @@ func (ec ExerciseContent) Value() (driver.Value, error) {
 // Submission Models
 // ============================================
 
+// AIFeedback represents structured AI evaluation feedback
+type AIFeedback struct {
+	Passed       bool     `json:"passed"`
+	Score        int      `json:"score"`
+	Feedback     string   `json:"feedback"`
+	Strengths    []string `json:"strengths"`
+	Improvements []string `json:"improvements"`
+	Correctness  string   `json:"correctness"`
+	CodeQuality  string   `json:"codeQuality"`
+	Suggestions  string   `json:"suggestions"`
+}
+
+// Implement sql.Scanner and driver.Valuer for AIFeedback (JSONB)
+func (af *AIFeedback) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return fmt.Errorf("cannot scan type %T into AIFeedback", value)
+	}
+
+	return json.Unmarshal(bytes, af)
+}
+
+func (af AIFeedback) Value() (driver.Value, error) {
+	return json.Marshal(af)
+}
+
 type Submission struct {
 	ID                   uuid.UUID    `db:"id" json:"id"`
 	UserID               uuid.UUID    `db:"user_id" json:"user_id"`
@@ -161,7 +196,7 @@ type Submission struct {
 	ExecutionError       *string      `db:"execution_error" json:"execution_error,omitempty"`
 	ExecutionTimeMs      *int         `db:"execution_time_ms" json:"execution_time_ms,omitempty"`
 	TestResults          *TestResults `db:"test_results" json:"test_results,omitempty"`
-	AIFeedback           *string      `db:"ai_feedback" json:"ai_feedback,omitempty"`
+	AIFeedback           *AIFeedback  `db:"ai_feedback" json:"ai_feedback,omitempty"`
 	AIScore              *int         `db:"ai_score" json:"ai_score,omitempty"`
 	AIEvaluationTimeMs   *int         `db:"ai_evaluation_time_ms" json:"ai_evaluation_time_ms,omitempty"`
 	TestScore            *int         `db:"test_score" json:"test_score,omitempty"`
@@ -345,7 +380,7 @@ type SubmissionResponse struct {
 	ExecutionOutput *string      `json:"execution_output,omitempty"`
 	ExecutionError  *string      `json:"execution_error,omitempty"`
 	TestResults     *TestResults `json:"test_results,omitempty"`
-	AIFeedback      *string      `json:"ai_feedback,omitempty"`
+	AIFeedback      *AIFeedback  `json:"ai_feedback,omitempty"`
 	TestScore       *int         `json:"test_score,omitempty"`
 	AIScore         *int         `json:"ai_score,omitempty"`
 	TotalScore      *int         `json:"total_score,omitempty"`

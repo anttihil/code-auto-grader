@@ -871,7 +871,16 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		// Continue without AI feedback rather than failing the whole submission
-		aiFeedback = "AI evaluation temporarily unavailable"
+		aiFeedback = &models.AIFeedback{
+			Passed:       false,
+			Score:        0,
+			Feedback:     "AI evaluation temporarily unavailable",
+			Strengths:    []string{},
+			Improvements: []string{},
+			Correctness:  "",
+			CodeQuality:  "",
+			Suggestions:  "",
+		}
 		aiScore = 0
 	}
 	aiEvaluationTimeMs := int(time.Since(startAI).Milliseconds())
@@ -915,7 +924,7 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 	// 5. Save submission to database
 	submission, err := h.saveSubmission(ctx, userID, exerciseID, req.Code, req.Language,
 		&executionOutput, executionError, &executionTimeMs,
-		testResults, &aiFeedback, &aiScoreScaled, &aiEvaluationTimeMs,
+		testResults, aiFeedback, &aiScoreScaled, &aiEvaluationTimeMs,
 		&testScoreScaled, &totalScore, requestID)
 	if err != nil {
 		logger.Logger.Error("failed to save submission",
@@ -1161,7 +1170,7 @@ func parseRustTestOutput(output string, testCases []models.TestCase) []models.Te
 }
 
 // evaluateWithAI gets AI feedback and score for the submission
-func (h *SubmissionHandler) evaluateWithAI(ctx context.Context, exercise *models.Exercise, code, language string, testResults *models.TestResults, requestID string) (string, int, error) {
+func (h *SubmissionHandler) evaluateWithAI(ctx context.Context, exercise *models.Exercise, code, language string, testResults *models.TestResults, requestID string) (*models.AIFeedback, int, error) {
 	// Build evaluation prompt using exercise's AI evaluation prompt
 	prompt := exercise.Content.AIEvaluationPrompt
 
@@ -1178,69 +1187,33 @@ func (h *SubmissionHandler) evaluateWithAI(ctx context.Context, exercise *models
 		slog.Int("prompt_length", len(prompt)),
 	)
 
-	// Get AI feedback (returns Feedback struct)
-	feedbackStruct, err := h.gemini.CheckSubmissionWithContext(ctx, prompt, code, language)
+	// Get AI feedback from Gemini (returns services.Feedback struct)
+	serviceFeedback, err := h.gemini.CheckSubmissionWithContext(ctx, prompt, code, language)
 	if err != nil {
-		return "", 0, fmt.Errorf("AI evaluation failed: %w", err)
+		return nil, 0, fmt.Errorf("AI evaluation failed: %w", err)
+	}
+
+	// Convert services.Feedback to models.AIFeedback
+	feedback := &models.AIFeedback{
+		Passed:       serviceFeedback.Passed,
+		Score:        serviceFeedback.Score,
+		Feedback:     serviceFeedback.Feedback,
+		Strengths:    serviceFeedback.Strengths,
+		Improvements: serviceFeedback.Improvements,
+		Correctness:  serviceFeedback.Correctness,
+		CodeQuality:  serviceFeedback.CodeQuality,
+		Suggestions:  serviceFeedback.Suggestions,
 	}
 
 	// Use the score from the AI feedback, or derive one if not provided
-	aiScore := feedbackStruct.Score
+	aiScore := feedback.Score
 	if aiScore == 0 {
 		// Fallback: derive score from feedback text if AI didn't provide one
-		aiScore = deriveAIScore(feedbackStruct.Feedback, testResults)
+		aiScore = deriveAIScore(feedback.Feedback, testResults)
+		feedback.Score = aiScore
 	}
 
-	// Build comprehensive feedback text from the struct
-	feedbackText := buildFeedbackText(feedbackStruct)
-
-	return feedbackText, aiScore, nil
-}
-
-// buildFeedbackText creates a formatted feedback string from the Feedback struct
-func buildFeedbackText(feedback services.Feedback) string {
-	var builder strings.Builder
-
-	// Main feedback
-	if feedback.Feedback != "" {
-		builder.WriteString(feedback.Feedback)
-		builder.WriteString("\n\n")
-	}
-
-	// Strengths
-	if len(feedback.Strengths) > 0 {
-		builder.WriteString("**Strengths:**\n")
-		for _, strength := range feedback.Strengths {
-			builder.WriteString(fmt.Sprintf("- %s\n", strength))
-		}
-		builder.WriteString("\n")
-	}
-
-	// Areas for improvement
-	if len(feedback.Improvements) > 0 {
-		builder.WriteString("**Areas for Improvement:**\n")
-		for _, improvement := range feedback.Improvements {
-			builder.WriteString(fmt.Sprintf("- %s\n", improvement))
-		}
-		builder.WriteString("\n")
-	}
-
-	// Correctness
-	if feedback.Correctness != "" {
-		builder.WriteString(fmt.Sprintf("**Correctness:** %s\n\n", feedback.Correctness))
-	}
-
-	// Code Quality
-	if feedback.CodeQuality != "" {
-		builder.WriteString(fmt.Sprintf("**Code Quality:** %s\n\n", feedback.CodeQuality))
-	}
-
-	// Suggestions
-	if feedback.Suggestions != "" {
-		builder.WriteString(fmt.Sprintf("**Suggestions:** %s\n", feedback.Suggestions))
-	}
-
-	return builder.String()
+	return feedback, aiScore, nil
 }
 
 // buildDefaultAIPrompt creates a default evaluation prompt
@@ -1324,7 +1297,7 @@ func (h *SubmissionHandler) saveSubmission(
 	executionError *string,
 	executionTimeMs *int,
 	testResults *models.TestResults,
-	aiFeedback *string,
+	aiFeedback *models.AIFeedback,
 	aiScore *int,
 	aiEvaluationTimeMs *int,
 	testScore *int,
