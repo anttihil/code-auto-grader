@@ -90,8 +90,8 @@ func main() {
 	// Create handlers with injected dependencies
 	submissionHandler := handlers.NewSubmissionHandler(codeExecutor, geminiService, submissionRepo, exerciseRepo, userProgressRepo)
 	exerciseHandler := handlers.NewExerciseHandler(geminiService, exerciseRepo, submissionRepo)
-	techTreeHandler := handlers.NewTechTreeHandler(techTreeRepo, nodeRepo, userProgressRepo)
-	nodeHandler := handlers.NewNodeHandler(nodeRepo, exerciseRepo, userProgressRepo)
+	techTreeHandler := handlers.NewTechTreeHandler(techTreeRepo, nodeRepo, exerciseRepo, userProgressRepo)
+	nodeHandler := handlers.NewNodeHandler(nodeRepo, exerciseRepo, submissionRepo, userProgressRepo)
 	logger.Logger.Info("handlers initialized with dependencies")
 
 	// Create Echo instance

@@ -91,6 +91,7 @@ func NewExerciseHandler(
 type TechTreeHandler struct {
 	techTreeRepo     repository.TechTreeRepository
 	nodeRepo         repository.NodeRepository
+	exerciseRepo     repository.ExerciseRepository
 	userProgressRepo repository.UserProgressRepository
 }
 
@@ -98,37 +99,12 @@ type TechTreeHandler struct {
 func NewTechTreeHandler(
 	techTreeRepo repository.TechTreeRepository,
 	nodeRepo repository.NodeRepository,
+	exerciseRepo repository.ExerciseRepository,
 	userProgressRepo repository.UserProgressRepository,
 ) *TechTreeHandler {
 	if techTreeRepo == nil {
 		panic("tech tree repository is required")
 	}
-	if nodeRepo == nil {
-		panic("node repository is required")
-	}
-	if userProgressRepo == nil {
-		panic("user progress repository is required")
-	}
-	return &TechTreeHandler{
-		techTreeRepo:     techTreeRepo,
-		nodeRepo:         nodeRepo,
-		userProgressRepo: userProgressRepo,
-	}
-}
-
-// NodeHandler handles node-related endpoints
-type NodeHandler struct {
-	nodeRepo         repository.NodeRepository
-	exerciseRepo     repository.ExerciseRepository
-	userProgressRepo repository.UserProgressRepository
-}
-
-// NewNodeHandler creates a new node handler with dependencies
-func NewNodeHandler(
-	nodeRepo repository.NodeRepository,
-	exerciseRepo repository.ExerciseRepository,
-	userProgressRepo repository.UserProgressRepository,
-) *NodeHandler {
 	if nodeRepo == nil {
 		panic("node repository is required")
 	}
@@ -138,9 +114,45 @@ func NewNodeHandler(
 	if userProgressRepo == nil {
 		panic("user progress repository is required")
 	}
+	return &TechTreeHandler{
+		techTreeRepo:     techTreeRepo,
+		nodeRepo:         nodeRepo,
+		exerciseRepo:     exerciseRepo,
+		userProgressRepo: userProgressRepo,
+	}
+}
+
+// NodeHandler handles node-related endpoints
+type NodeHandler struct {
+	nodeRepo         repository.NodeRepository
+	exerciseRepo     repository.ExerciseRepository
+	submissionRepo   repository.SubmissionRepository
+	userProgressRepo repository.UserProgressRepository
+}
+
+// NewNodeHandler creates a new node handler with dependencies
+func NewNodeHandler(
+	nodeRepo repository.NodeRepository,
+	exerciseRepo repository.ExerciseRepository,
+	submissionRepo repository.SubmissionRepository,
+	userProgressRepo repository.UserProgressRepository,
+) *NodeHandler {
+	if nodeRepo == nil {
+		panic("node repository is required")
+	}
+	if exerciseRepo == nil {
+		panic("exercise repository is required")
+	}
+	if submissionRepo == nil {
+		panic("submission repository is required")
+	}
+	if userProgressRepo == nil {
+		panic("user progress repository is required")
+	}
 	return &NodeHandler{
 		nodeRepo:         nodeRepo,
 		exerciseRepo:     exerciseRepo,
+		submissionRepo:   submissionRepo,
 		userProgressRepo: userProgressRepo,
 	}
 }
@@ -483,18 +495,85 @@ func (h *TechTreeHandler) GetTechTree(c echo.Context) error {
 	}
 
 	// Create progress map for efficient lookup
-	progressMap := make(map[string]interface{})
-	for _, progress := range userProgress {
-		progressMap[progress.NodeID.String()] = progress
+	progressMap := make(map[string]*models.UserProgress)
+	for i := range userProgress {
+		progressMap[userProgress[i].NodeID.String()] = userProgress[i]
 	}
 
-	// Combine nodes with progress
-	// TODO: Implement prerequisite checking to determine IsLocked status
+	// Fetch exercise counts for each node
+	exerciseCounts := make(map[string]int)
+	for _, node := range nodes {
+		exercises, err := h.exerciseRepo.GetByNode(ctx, node.ID.String())
+		if err != nil {
+			logger.Logger.Warn("failed to count exercises for node",
+				slog.String("request_id", requestID),
+				slog.String("node_id", node.ID.String()),
+				slog.String("error", err.Error()),
+			)
+			exerciseCounts[node.ID.String()] = 0
+		} else {
+			exerciseCounts[node.ID.String()] = len(exercises)
+		}
+	}
+
+	// Combine nodes with embedded progress
+	nodesWithProgress := make([]map[string]interface{}, 0, len(nodes))
+	for i, node := range nodes {
+		nodeData := map[string]interface{}{
+			"id":                  node.ID,
+			"tech_tree_id":        node.TechTreeID,
+			"name":                node.Name,
+			"slug":                node.Slug,
+			"description":         node.Description,
+			"learning_objectives": node.LearningObjectives,
+			"order_index":         node.OrderIndex,
+			"estimated_minutes":   node.EstimatedMinutes,
+			"created_at":          node.CreatedAt,
+			"updated_at":          node.UpdatedAt,
+		}
+
+		// Add progress if it exists, otherwise create default progress
+		if progress, exists := progressMap[node.ID.String()]; exists {
+			// Update exercises_total if not set
+			if progress.ExercisesTotal == 0 {
+				progress.ExercisesTotal = exerciseCounts[node.ID.String()]
+			}
+
+			// Build progress object
+			nodeData["progress"] = map[string]interface{}{
+				"node_id":             progress.NodeID,
+				"exercises_completed": progress.ExercisesCompleted,
+				"total_exercises":     progress.ExercisesTotal,
+				"mastery_achieved":    progress.IsMastered,
+				"is_unlocked":         true, // If progress exists, node is unlocked
+				"best_scores":         make(map[string]int), // TODO: Fetch from submissions
+			}
+		} else {
+			// Create default progress for nodes without progress
+			exerciseCount := exerciseCounts[node.ID.String()]
+			nodeData["progress"] = map[string]interface{}{
+				"node_id":             node.ID,
+				"exercises_completed": 0,
+				"total_exercises":     exerciseCount,
+				"mastery_achieved":    false,
+				"is_unlocked":         i == 0, // First node is always unlocked
+				"best_scores":         make(map[string]int),
+			}
+		}
+
+		nodesWithProgress = append(nodesWithProgress, nodeData)
+	}
+
+	// Flatten tech tree fields to response root level with nodes embedded
 	response := map[string]interface{}{
 		"success":     true,
-		"tech_tree":   tree,
-		"nodes":       nodes,
-		"progress":    progressMap,
+		"id":          tree.ID,
+		"name":        tree.Name,
+		"slug":        tree.Slug,
+		"description": tree.Description,
+		"language":    tree.Language,
+		"created_at":  tree.CreatedAt,
+		"nodes":       nodesWithProgress,
 	}
 
 	logger.Logger.Info("tech tree fetched successfully",
@@ -559,11 +638,65 @@ func (h *NodeHandler) GetNode(c echo.Context) error {
 		progress = nil
 	}
 
+	// Fetch best scores for each exercise from submissions
+	bestScores := make(map[string]int)
+	for _, exercise := range exercises {
+		submissions, _, err := h.submissionRepo.GetByExercisePaginated(ctx, userID, exercise.ID.String(), 100, 0)
+		if err == nil && len(submissions) > 0 {
+			// Find best score
+			for _, sub := range submissions {
+				if sub.TotalScore != nil {
+					if bestScore, exists := bestScores[exercise.ID.String()]; !exists || *sub.TotalScore > bestScore {
+						bestScores[exercise.ID.String()] = *sub.TotalScore
+					}
+				}
+			}
+		}
+	}
+
+	// Build progress object with best scores
+	var progressData map[string]interface{}
+	if progress != nil {
+		// Update exercises_total if not set
+		if progress.ExercisesTotal == 0 {
+			progress.ExercisesTotal = len(exercises)
+		}
+
+		progressData = map[string]interface{}{
+			"node_id":             progress.NodeID,
+			"exercises_completed": progress.ExercisesCompleted,
+			"total_exercises":     progress.ExercisesTotal,
+			"mastery_achieved":    progress.IsMastered,
+			"is_unlocked":         true, // If progress exists, node is unlocked
+			"best_scores":         bestScores,
+		}
+	} else {
+		// Create default progress
+		progressData = map[string]interface{}{
+			"node_id":             nodeID,
+			"exercises_completed": 0,
+			"total_exercises":     len(exercises),
+			"mastery_achieved":    false,
+			"is_unlocked":         true, // Assume unlocked if viewing it
+			"best_scores":         bestScores,
+		}
+	}
+
+	// Flatten node fields to response root level with embedded progress
 	response := map[string]interface{}{
-		"success":   true,
-		"node":      node,
-		"exercises": exercises,
-		"progress":  progress,
+		"success":             true,
+		"id":                  node.ID,
+		"tech_tree_id":        node.TechTreeID,
+		"name":                node.Name,
+		"slug":                node.Slug,
+		"description":         node.Description,
+		"learning_objectives": node.LearningObjectives,
+		"order_index":         node.OrderIndex,
+		"estimated_minutes":   node.EstimatedMinutes,
+		"created_at":          node.CreatedAt,
+		"updated_at":          node.UpdatedAt,
+		"progress":            progressData,
+		"exercises":           exercises,
 	}
 
 	logger.Logger.Info("node fetched successfully",
@@ -615,23 +748,26 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 		submissions = nil
 	}
 
-	// Calculate best score
-	var bestScore *int
+	// Calculate best score and attempt count
+	var bestScore int
+	attemptCount := len(submissions)
 	if len(submissions) > 0 {
 		for _, sub := range submissions {
 			if sub.TotalScore != nil {
-				if bestScore == nil || *sub.TotalScore > *bestScore {
-					bestScore = sub.TotalScore
+				if *sub.TotalScore > bestScore {
+					bestScore = *sub.TotalScore
 				}
 			}
 		}
 	}
 
+	// Flatten exercise fields to response root level with submission data
 	response := map[string]interface{}{
-		"success":            true,
-		"exercise":           exercise,
-		"submission_history": submissions,
-		"best_score":         bestScore,
+		"success":      true,
+		"exercise":     exercise,
+		"submissions":  submissions,  // Frontend expects "submissions" not "submission_history"
+		"best_score":   bestScore,
+		"attempt_count": attemptCount,
 	}
 
 	logger.Logger.Info("exercise fetched successfully",
