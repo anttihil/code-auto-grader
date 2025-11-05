@@ -66,7 +66,7 @@ interface Submission {
     failed_tests: number;
     details: TestResult[];
   };
-  ai_feedback: {
+  ai_feedback?: {
     score: number;
     strengths: string[];
     improvements: string[];
