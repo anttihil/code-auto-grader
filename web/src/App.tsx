@@ -1,4 +1,5 @@
 import { createSignal, Show, For, onMount } from "solid-js";
+import { marked } from "marked";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -109,6 +110,41 @@ interface ExerciseWithHistory extends Exercise {
   submissions: Submission[];
   best_score: number;
   attempt_count: number;
+}
+
+// ============================================================================
+// MARKDOWN RENDERING
+// ============================================================================
+
+// Configure marked for security and simplicity
+marked.setOptions({
+  gfm: true, // GitHub Flavored Markdown
+  breaks: true, // \n becomes <br>
+});
+
+// Custom renderer for styled code
+const renderer = new marked.Renderer();
+
+// Inline code: `code`
+renderer.codespan = ({ text }: { text: string }) => {
+  return `<code class="inline-code">${text}</code>`;
+};
+
+// Code blocks: ```rust ... ```
+renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
+  const language = lang || "plaintext";
+  return `<pre><code class="code-block language-${language}">${text}</code></pre>`;
+};
+
+marked.use({ renderer });
+
+/**
+ * Render markdown to safe HTML
+ * Used for: hints, AI feedback, exercise descriptions
+ */
+function renderMarkdown(content: string): string {
+  if (!content) return "";
+  return marked.parse(content, { async: false }) as string;
 }
 
 // ============================================================================
@@ -625,7 +661,7 @@ function App() {
                 </div>
 
                 <div class="exercise-content">
-                  <p>{currentExercise()!.description}</p>
+                  <div innerHTML={renderMarkdown(currentExercise()!.description)} />
 
                   <Show
                     when={
@@ -658,7 +694,8 @@ function App() {
                           <For each={currentExercise()!.content.hints}>
                             {(hint) => (
                               <li>
-                                <strong>{hint.title}:</strong> {hint.content}
+                                <strong>{hint.title}:</strong>{" "}
+                                <span innerHTML={renderMarkdown(hint.content)} />
                               </li>
                             )}
                           </For>
@@ -795,7 +832,9 @@ function App() {
                                     <For
                                       each={submission.ai_feedback?.strengths}
                                     >
-                                      {(strength) => <li>{strength}</li>}
+                                      {(strength) => (
+                                        <li innerHTML={renderMarkdown(strength)} />
+                                      )}
                                     </For>
                                   </ul>
                                 </div>
@@ -816,7 +855,9 @@ function App() {
                                         submission.ai_feedback?.improvements
                                       }
                                     >
-                                      {(improvement) => <li>{improvement}</li>}
+                                      {(improvement) => (
+                                        <li innerHTML={renderMarkdown(improvement)} />
+                                      )}
                                     </For>
                                   </ul>
                                 </div>

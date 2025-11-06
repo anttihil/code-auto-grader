@@ -750,6 +750,64 @@ header p {
 }
 
 /* ============================================================================
+   MARKDOWN RENDERING
+   ============================================================================ */
+
+/* Inline code: `code` */
+.inline-code {
+    background: #f4f4f4;
+    border: 1px solid #e0e0e0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #c7254e;
+}
+
+/* Code blocks: ```language ... ``` */
+.exercise-content pre,
+.feedback-section pre,
+.hints pre {
+    background: #282c34;
+    border: 1px solid #3e4451;
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 12px 0;
+}
+
+.code-block {
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #abb2bf;
+    line-height: 1.5;
+    display: block;
+}
+
+/* Markdown content spacing */
+.exercise-content p,
+.feedback-section p,
+.hints p {
+    margin: 8px 0;
+}
+
+.exercise-content ul,
+.exercise-content ol,
+.feedback-section ul,
+.feedback-section ol,
+.hints ul,
+.hints ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.exercise-content li,
+.feedback-section li,
+.hints li {
+    margin: 4px 0;
+}
+
+/* ============================================================================
    BUTTONS
    ============================================================================ */
 
