@@ -5,7 +5,13 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/anttihil/code-auto-grader/api/content"
+	"github.com/anttihil/code-auto-grader/api/grading"
+	"github.com/anttihil/code-auto-grader/api/learning"
 	"github.com/anttihil/code-auto-grader/database"
+	domainContent "github.com/anttihil/code-auto-grader/domain/content"
+	domainGrading "github.com/anttihil/code-auto-grader/domain/grading"
+	domainLearning "github.com/anttihil/code-auto-grader/domain/learning"
 	"github.com/anttihil/code-auto-grader/handlers"
 	"github.com/anttihil/code-auto-grader/internal/logger"
 	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
@@ -87,12 +93,42 @@ func main() {
 	geminiService := services.NewGeminiService()
 	logger.Logger.Info("gemini service initialized")
 
-	// Create handlers with injected dependencies
-	submissionHandler := handlers.NewSubmissionHandler(codeExecutor, geminiService, submissionRepo, exerciseRepo, userProgressRepo)
-	exerciseHandler := handlers.NewExerciseHandler(geminiService, exerciseRepo, submissionRepo)
-	techTreeHandler := handlers.NewTechTreeHandler(techTreeRepo, nodeRepo, exerciseRepo, userProgressRepo)
-	nodeHandler := handlers.NewNodeHandler(nodeRepo, exerciseRepo, submissionRepo, userProgressRepo)
-	logger.Logger.Info("handlers initialized with dependencies")
+	// Create adapters to bridge services to domain interfaces
+	logger.Logger.Info("creating service adapters")
+	executorAdapter := domainGrading.NewExecutorAdapter(codeExecutor)
+	geminiGradingAdapter := domainGrading.NewGeminiAdapter(geminiService)
+	geminiContentAdapter := domainContent.NewGeminiAdapter(geminiService)
+
+	// Create domain services (business logic layer)
+	logger.Logger.Info("initializing domain services")
+	gradingService := domainGrading.NewGradingService(
+		executorAdapter,
+		geminiGradingAdapter,
+		submissionRepo,
+		exerciseRepo,
+		userProgressRepo,
+	)
+	learningService := domainLearning.NewLearningService(
+		techTreeRepo,
+		nodeRepo,
+		exerciseRepo,
+		userProgressRepo,
+		submissionRepo,
+	)
+	contentService := domainContent.NewContentService(
+		geminiContentAdapter,
+		exerciseRepo,
+		submissionRepo,
+	)
+	logger.Logger.Info("domain services initialized successfully")
+
+	// Create API handlers (HTTP adapters)
+	logger.Logger.Info("initializing API handlers")
+	submissionHandler := grading.NewSubmissionHandler(gradingService)
+	techTreeHandler := learning.NewTechTreeHandler(learningService)
+	nodeHandler := learning.NewNodeHandler(learningService)
+	exerciseHandler := content.NewExerciseHandler(contentService)
+	logger.Logger.Info("API handlers initialized with domain services")
 
 	// Create Echo instance
 	e := echo.New()
@@ -121,8 +157,7 @@ func main() {
 	e.GET("/api/exercise/:exerciseId", exerciseHandler.GetExercise)
 
 	// Submission routes
-	e.POST("/api/submission/run", submissionHandler.RunCode)
-	e.POST("/api/submission/submit", submissionHandler.SubmitCode)
+	e.POST("/api/code/run/:exerciseId", submissionHandler.RunCode)
 	e.POST("/api/submission/:exerciseId", submissionHandler.SubmitToExercise)
 	e.GET("/api/pool/status", submissionHandler.GetPoolStatus)
 

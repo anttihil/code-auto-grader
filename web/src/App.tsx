@@ -317,10 +317,10 @@ function App() {
 
     setLoading(true);
     setOutputClass("output");
-    setOutput("Running code...");
+    setOutput("Running code with test cases...");
 
     try {
-      const response = await fetch("/api/submission/run", {
+      const response = await fetch(`/api/code/run/${exercise.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: code(), language }),
@@ -328,11 +328,38 @@ function App() {
       const data = await response.json();
 
       if (data.success) {
-        setOutputClass("output success");
-        setOutput(data.output || "Code executed successfully (no output)");
+        // Format test results output
+        let outputText = "";
+
+        if (data.execution_error) {
+          outputText += `❌ Execution Error:\n${data.execution_error}\n\n`;
+        }
+
+        if (data.test_results) {
+          const passed = data.test_results.passed_tests;
+          const total = data.test_results.total_tests;
+          outputText += `Test Results: ${passed}/${total} passed (Score: ${data.test_score}%)\n\n`;
+
+          if (data.test_results.results) {
+            data.test_results.results.forEach((test: any) => {
+              const icon = test.status === "passed" ? "✅" : "❌";
+              outputText += `${icon} ${test.name}: ${test.status.toUpperCase()}\n`;
+              if (test.error) {
+                outputText += `   Error: ${test.error}\n`;
+              }
+            });
+          }
+        }
+
+        if (data.execution_output) {
+          outputText += `\n${data.execution_output}`;
+        }
+
+        setOutputClass(data.test_results?.passed_tests === data.test_results?.total_tests ? "output success" : "output error");
+        setOutput(outputText || "Code executed successfully (no output)");
       } else {
         setOutputClass("output error");
-        setOutput(`Error: ${data.error || "Failed to run code. Please try again."}`);
+        setOutput(`Error: ${data.error || data.message || "Failed to run code. Please try again."}`);
       }
     } catch (error) {
       console.error("Error running code:", error);

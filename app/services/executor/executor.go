@@ -125,16 +125,6 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 // ExecuteCodeWithContext executes code based on the language with request context
 func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code, language string) ExecutionResult {
 	requestID := logger.GetRequestID(ctx)
-	return s.executeCodeInternal(ctx, code, language, requestID)
-}
-
-// ExecuteCode executes code based on the language (backwards compatibility)
-func (s *CodeExecutionService) ExecuteCode(code, language string) ExecutionResult {
-	return s.executeCodeInternal(context.Background(), code, language, "unknown")
-}
-
-// executeCodeInternal is the internal implementation with context support
-func (s *CodeExecutionService) executeCodeInternal(ctx context.Context, code, language, requestID string) ExecutionResult {
 	if strings.TrimSpace(code) == "" {
 		return ExecutionResult{
 			Success:       false,
