@@ -30,8 +30,12 @@ dev: db-up ## Start full development environment (database + migrations)
 	@echo "  Terminal 1: go run main.go"
 	@echo "  Terminal 2: cd ../web && npm run dev"
 
-dev-watch: ## Run backend with auto-reload (requires air)
+dev-watch: db-up ## Run backend with auto-reload (requires air)
 	@echo "$(GREEN)Starting backend with auto-reload...$(NC)"
+	@echo "Waiting for database to be ready..."
+	@sleep 3
+	@$(MAKE) migrate-up
+	@echo "$(GREEN)Database ready! Starting air...$(NC)"
 	@air
 
 # Database Commands
