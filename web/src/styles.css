@@ -618,6 +618,33 @@ header p {
     gap: 20px;
 }
 
+/* Compilation/Execution Error */
+.compilation-error {
+    background: #fff3cd;
+    border: 2px solid #ffc107;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.compilation-error h4 {
+    color: #856404;
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+.error-output {
+    background: #2d2d2d;
+    color: #f8f8f2;
+    padding: 15px;
+    border-radius: 6px;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
 /* Test Results */
 .test-results h4 {
     color: #667eea;

@@ -61,6 +61,7 @@ interface Submission {
   user_id: string;
   submitted_code: string;
   language: string;
+  execution_error?: string;
   test_results: {
     total_tests: number;
     passed_tests: number;
@@ -274,17 +275,18 @@ function App() {
       console.log("Loaded exercise data:", data);
 
       if (data.success) {
-        // Merge exercise with submission history data
+        // Exercise fields are now spread at top level along with submission history
+        const { success, ...exerciseData } = data;
         const exerciseWithHistory: ExerciseWithHistory = {
-          ...data.exercise,
-          submissions: data.submissions || [],
-          best_score: data.best_score || 0,
-          attempt_count: data.attempt_count || 0,
+          ...exerciseData,
+          submissions: exerciseData.submissions || [],
+          best_score: exerciseData.best_score || 0,
+          attempt_count: exerciseData.attempt_count || 0,
         };
         setCurrentExercise(exerciseWithHistory);
         // Set starter code
-        if (data.exercise.content?.starter_code) {
-          setCode(data.exercise.content.starter_code);
+        if (data.content?.starter_code) {
+          setCode(data.content.starter_code);
         } else {
           setCode("// Write your code here\n");
         }
@@ -325,18 +327,12 @@ function App() {
       });
       const data = await response.json();
 
-      if (data.success && data.executionResult) {
-        const result = data.executionResult;
-        if (result.success) {
-          setOutputClass("output success");
-          setOutput(result.output || "Code executed successfully (no output)");
-        } else {
-          setOutputClass("output error");
-          setOutput(`Error: ${result.error}`);
-        }
+      if (data.success) {
+        setOutputClass("output success");
+        setOutput(data.output || "Code executed successfully (no output)");
       } else {
         setOutputClass("output error");
-        setOutput("Failed to run code. Please try again.");
+        setOutput(`Error: ${data.error || "Failed to run code. Please try again."}`);
       }
     } catch (error) {
       console.error("Error running code:", error);
@@ -782,6 +778,16 @@ function App() {
                           </div>
 
                           <div class="submission-details">
+                            {/* Compilation/Execution Error */}
+                            <Show when={submission.execution_error}>
+                              <div class="compilation-error">
+                                <h4>❌ Compilation/Execution Error</h4>
+                                <pre class="error-output">
+                                  {submission.execution_error}
+                                </pre>
+                              </div>
+                            </Show>
+
                             {/* Test Results */}
                             <div class="test-results">
                               <h4>

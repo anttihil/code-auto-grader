@@ -177,7 +177,8 @@ func HealthCheck(c echo.Context) error {
 
 // GetSampleExercise returns a sample coding exercise
 func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
-	sampleExercise := map[string]any{
+	response := map[string]any{
+		"success":     true,
 		"title":       "Sum Two Numbers",
 		"description": "Write a function that takes two numbers as parameters and returns their sum.",
 		"difficulty":  "beginner",
@@ -196,10 +197,7 @@ func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 		},
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"success":  true,
-		"exercise": sampleExercise,
-	})
+	return c.JSON(http.StatusOK, response)
 }
 
 // GenerateExercise generates a new coding exercise using AI
@@ -259,8 +257,15 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":  true,
-		"exercise": exercise,
+		"success":        true,
+		"title":          exercise.Title,
+		"description":    exercise.Description,
+		"difficulty":     exercise.Difficulty,
+		"language":       exercise.Language,
+		"starterCode":    exercise.StarterCode,
+		"hints":          exercise.Hints,
+		"expectedOutput": exercise.ExpectedOutput,
+		"testCases":      exercise.TestCases,
 	})
 }
 
@@ -315,8 +320,10 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 		)
 		c.Response().Header().Set("Retry-After", "5")
 		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-			"success":         false,
-			"executionResult": result,
+			"success":        false,
+			"output":         result.Output,
+			"error":          result.Error,
+			"execution_time": result.ExecutionTime,
 		})
 	}
 
@@ -326,8 +333,10 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 	)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":         result.Success,
-		"executionResult": result,
+		"success":        result.Success,
+		"output":         result.Output,
+		"error":          result.Error,
+		"execution_time": result.ExecutionTime,
 	})
 }
 
@@ -398,8 +407,10 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		)
 		c.Response().Header().Set("Retry-After", "5")
 		return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-			"success":         false,
-			"executionResult": executionResult,
+			"success":        false,
+			"output":         executionResult.Output,
+			"error":          executionResult.Error,
+			"execution_time": executionResult.ExecutionTime,
 		})
 	}
 
@@ -424,9 +435,11 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 		slog.String("request_id", requestID),
 	)
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":         executionResult.Success,
-		"executionResult": executionResult,
-		"feedback":        feedback,
+		"success":        executionResult.Success,
+		"output":         executionResult.Output,
+		"error":          executionResult.Error,
+		"execution_time": executionResult.ExecutionTime,
+		"feedback":       feedback,
 	})
 }
 
@@ -434,10 +447,15 @@ func (h *SubmissionHandler) SubmitCode(c echo.Context) error {
 func (h *SubmissionHandler) GetPoolStatus(c echo.Context) error {
 	status := h.codeExecutor.GetPoolStatus()
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	// Spread pool status into response
+	response := map[string]interface{}{
 		"success": true,
-		"pools":   status,
-	})
+	}
+	for lang, poolStatus := range status {
+		response[lang] = poolStatus
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 // ============================================
@@ -761,13 +779,23 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 		}
 	}
 
-	// Flatten exercise fields to response root level with submission data
+	// Spread exercise fields to response root level with submission data
 	response := map[string]interface{}{
-		"success":      true,
-		"exercise":     exercise,
-		"submissions":  submissions,  // Frontend expects "submissions" not "submission_history"
-		"best_score":   bestScore,
-		"attempt_count": attemptCount,
+		"success":           true,
+		"id":                exercise.ID,
+		"node_id":           exercise.NodeID,
+		"title":             exercise.Title,
+		"slug":              exercise.Slug,
+		"description":       exercise.Description,
+		"difficulty":        exercise.Difficulty,
+		"estimated_minutes": exercise.EstimatedMinutes,
+		"order_index":       exercise.OrderIndex,
+		"content":           exercise.Content,
+		"created_at":        exercise.CreatedAt,
+		"updated_at":        exercise.UpdatedAt,
+		"submissions":       submissions,
+		"best_score":        bestScore,
+		"attempt_count":     attemptCount,
 	}
 
 	logger.Logger.Info("exercise fetched successfully",
@@ -846,7 +874,51 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 		slog.Int("test_case_count", len(exercise.Content.TestCases)),
 	)
 
-	// 2. Run test cases
+	// 2. Check code similarity to starter code (anti-gaming validation)
+	similarityLevel := h.checkCodeSimilarity(req.Code, exercise.Content.StarterCode, req.Language)
+
+	switch similarityLevel {
+	case CodeIdentical:
+		logger.Logger.Warn("submission rejected: identical to starter code",
+			slog.String("request_id", requestID),
+			slog.String("exercise_id", exerciseID),
+			slog.String("user_id", userID),
+		)
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "IDENTICAL_TO_STARTER",
+			"message": "Your submission is identical to the starter code. Please implement the solution described in the exercise.",
+		})
+
+	case CodeTrivialChanges:
+		logger.Logger.Warn("submission rejected: trivial changes only",
+			slog.String("request_id", requestID),
+			slog.String("exercise_id", exerciseID),
+			slog.String("user_id", userID),
+		)
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "TRIVIAL_CHANGES",
+			"message": "Your submission only contains trivial changes (comments or formatting). Please implement a solution to the exercise.",
+		})
+
+	case CodeMinimalChanges:
+		logger.Logger.Info("submission flagged: minimal changes detected",
+			slog.String("request_id", requestID),
+			slog.String("exercise_id", exerciseID),
+			slog.String("user_id", userID),
+		)
+		// Continue but flag for stricter AI evaluation
+		// The AI prompt will be aware of this and evaluate more strictly
+
+	case CodeSubstantial:
+		logger.Logger.Debug("submission accepted: substantial changes detected",
+			slog.String("request_id", requestID),
+		)
+		// Normal flow
+	}
+
+	// 3. Run test cases
 	testResults, executionOutput, executionError, executionTimeMs := h.runTestCases(ctx, req.Code, req.Language, exercise.Content.TestCases, requestID)
 
 	// Calculate test score (0-100)
@@ -1227,22 +1299,42 @@ Language: %s
 
 Test Results: %d/%d tests passed
 
-Submitted Code:
+STARTER CODE PROVIDED:
 %s
 
-Please provide feedback on:
-1. Code correctness and logic
-2. Code quality and style
-3. Efficiency and best practices
-4. Suggestions for improvement
+SUBMITTED CODE:
+%s
 
-Be constructive and educational in your feedback.`,
+CRITICAL: Compare the submitted code against the starter code. Evaluate:
+
+1. LEARNING PROGRESS:
+   - What changes did the student make from the starter code?
+   - Are the changes substantial and demonstrate understanding?
+   - Did the student just add comments or trivial modifications?
+
+2. SOLUTION QUALITY:
+   - Code correctness and logic
+   - Code quality and style
+   - Efficiency and best practices
+
+3. EFFORT ASSESSMENT:
+   - If changes are minimal or cosmetic only, assign a low score (0-20)
+   - If solution shows genuine problem-solving, score appropriately
+   - Even if tests pass, minimal effort should receive minimal credit
+
+4. FEEDBACK:
+   - Provide constructive, educational feedback
+   - If submission lacks effort, explain what's missing
+   - Suggest specific improvements
+
+Be strict about effort: unchanged or trivially changed code should receive very low scores, even if tests pass.`,
 		exercise.Title,
 		exercise.Description,
 		exercise.Difficulty,
 		language,
 		testResults.PassedTests,
 		testResults.TotalTests,
+		exercise.Content.StarterCode,
 		code)
 }
 
@@ -1256,6 +1348,7 @@ func replacePlaceholders(prompt string, exercise *models.Exercise, code, languag
 		"{tests_passed}", fmt.Sprintf("%d", testResults.PassedTests),
 		"{tests_total}", fmt.Sprintf("%d", testResults.TotalTests),
 		"{submitted_code}", code,
+		"{starter_code}", exercise.Content.StarterCode,
 	)
 	return replacer.Replace(prompt)
 }
@@ -1404,6 +1497,209 @@ func (h *SubmissionHandler) updateUserProgress(ctx context.Context, userID, node
 	)
 
 	return nil
+}
+
+// ============================================
+// Code Similarity Checking (Anti-Gaming)
+// ============================================
+
+// CodeSimilarityLevel represents how similar submitted code is to starter code
+type CodeSimilarityLevel int
+
+const (
+	CodeIdentical       CodeSimilarityLevel = iota // Exact match
+	CodeTrivialChanges                             // Only whitespace/comments
+	CodeMinimalChanges                             // <10% change
+	CodeSubstantial                                // Sufficient changes
+)
+
+// normalizeCode removes leading/trailing whitespace and normalizes formatting
+func normalizeCode(code string) string {
+	// Trim overall whitespace
+	code = strings.TrimSpace(code)
+
+	// Normalize line endings
+	code = strings.ReplaceAll(code, "\r\n", "\n")
+
+	// Remove multiple consecutive blank lines
+	lines := strings.Split(code, "\n")
+	var normalized []string
+	previousBlank := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if !previousBlank {
+				normalized = append(normalized, "")
+				previousBlank = true
+			}
+		} else {
+			// Normalize indentation (convert tabs to spaces)
+			line = strings.ReplaceAll(line, "\t", "    ")
+			normalized = append(normalized, strings.TrimRight(line, " "))
+			previousBlank = false
+		}
+	}
+
+	return strings.Join(normalized, "\n")
+}
+
+// stripComments removes comments from code (language-aware)
+func stripComments(code, language string) string {
+	language = strings.ToLower(language)
+
+	switch language {
+	case "javascript", "typescript", "go", "rust", "java", "c", "cpp", "c++":
+		return stripCStyleComments(code)
+	case "python":
+		return stripPythonComments(code)
+	default:
+		return code
+	}
+}
+
+// stripCStyleComments removes // and /* */ style comments
+func stripCStyleComments(code string) string {
+	lines := strings.Split(code, "\n")
+	var stripped []string
+	inBlockComment := false
+
+	for _, line := range lines {
+		result := line
+
+		// Handle block comments
+		for {
+			if inBlockComment {
+				if idx := strings.Index(result, "*/"); idx != -1 {
+					result = result[idx+2:]
+					inBlockComment = false
+				} else {
+					result = ""
+					break
+				}
+			}
+
+			if idx := strings.Index(result, "/*"); idx != -1 {
+				beforeComment := result[:idx]
+				result = result[idx+2:]
+				inBlockComment = true
+
+				if endIdx := strings.Index(result, "*/"); endIdx != -1 {
+					result = beforeComment + result[endIdx+2:]
+					inBlockComment = false
+				} else {
+					result = beforeComment
+					break
+				}
+			} else {
+				break
+			}
+		}
+
+		// Remove single-line comments
+		if idx := strings.Index(result, "//"); idx != -1 {
+			result = result[:idx]
+		}
+
+		if strings.TrimSpace(result) != "" {
+			stripped = append(stripped, result)
+		}
+	}
+
+	return strings.Join(stripped, "\n")
+}
+
+// stripPythonComments removes # style comments
+func stripPythonComments(code string) string {
+	lines := strings.Split(code, "\n")
+	var stripped []string
+
+	for _, line := range lines {
+		// Simple approach: remove everything after #
+		// Note: doesn't handle # in strings, but good enough for similarity check
+		if idx := strings.Index(line, "#"); idx != -1 {
+			line = line[:idx]
+		}
+		if strings.TrimSpace(line) != "" {
+			stripped = append(stripped, line)
+		}
+	}
+
+	return strings.Join(stripped, "\n")
+}
+
+// calculateSimilarity returns similarity percentage (0-100) using line-based comparison
+func calculateSimilarity(s1, s2 string) float64 {
+	if s1 == s2 {
+		return 100.0
+	}
+
+	if len(s1) == 0 || len(s2) == 0 {
+		return 0.0
+	}
+
+	// Simple line-based similarity
+	lines1 := strings.Split(s1, "\n")
+	lines2 := strings.Split(s2, "\n")
+
+	// Count matching lines
+	matches := 0
+	totalLines := max(len(lines1), len(lines2))
+
+	// Create map of lines in s2 for efficient lookup
+	lineMap := make(map[string]int)
+	for _, line := range lines2 {
+		normalized := strings.TrimSpace(line)
+		if normalized != "" {
+			lineMap[normalized]++
+		}
+	}
+
+	// Count matches from s1
+	for _, line := range lines1 {
+		normalized := strings.TrimSpace(line)
+		if normalized != "" && lineMap[normalized] > 0 {
+			matches++
+			lineMap[normalized]--
+		}
+	}
+
+	if totalLines == 0 {
+		return 100.0
+	}
+
+	similarity := (float64(matches) / float64(totalLines)) * 100.0
+	return similarity
+}
+
+// checkCodeSimilarity compares submitted code to starter code and returns similarity level
+func (h *SubmissionHandler) checkCodeSimilarity(submitted, starter, language string) CodeSimilarityLevel {
+	// 1. Normalize both codes (trim whitespace, normalize formatting)
+	normalizedSubmitted := normalizeCode(submitted)
+	normalizedStarter := normalizeCode(starter)
+
+	// 2. Check exact match
+	if normalizedSubmitted == normalizedStarter {
+		return CodeIdentical
+	}
+
+	// 3. Remove comments and check again
+	strippedSubmitted := stripComments(normalizedSubmitted, language)
+	strippedStarter := stripComments(normalizedStarter, language)
+
+	if strippedSubmitted == strippedStarter {
+		return CodeTrivialChanges
+	}
+
+	// 4. Calculate similarity percentage
+	similarity := calculateSimilarity(strippedSubmitted, strippedStarter)
+
+	// 5. Classify based on similarity threshold
+	if similarity >= 90.0 {
+		return CodeMinimalChanges
+	}
+
+	return CodeSubstantial
 }
 
 // min returns the minimum of two integers
