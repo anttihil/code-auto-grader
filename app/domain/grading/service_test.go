@@ -608,3 +608,190 @@ func TestGetPoolStatus(t *testing.T) {
 	assert.Equal(t, expectedStatus, status)
 	mockExecutor.AssertExpectations(t)
 }
+
+// ============================================================================
+// RunCode Tests
+// ============================================================================
+
+func TestRunCode_HappyPath(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockUserProgressRepository)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockProgressRepo)
+
+	ctx := context.Background()
+	exercise := createTestExercise()
+	exerciseID := exercise.ID.String()
+	code := "function add(a, b) { return a + b; }"
+
+	// Mock exercise repository
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(exercise, nil)
+
+	// Mock code execution - all tests pass
+	execResult := &executor.ExecutionResult{
+		Output:  "2\n5",
+		Success: true,
+		Error:   "",
+	}
+	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
+
+	// Execute
+	req := RunCodeRequest{
+		ExerciseID: exerciseID,
+		Code:       code,
+		Language:   "javascript",
+	}
+
+	result, err := service.RunCode(ctx, req, "test-request-id")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Contains(t, result.ExecutionOutput, "PASSED") // Contains formatted test output
+	assert.Contains(t, result.ExecutionOutput, "Test 1+1")
+	assert.Nil(t, result.ExecutionError)
+	assert.NotNil(t, result.TestResults)
+	assert.Equal(t, 2, result.TestResults.PassedTests)
+	assert.Equal(t, 2, result.TestResults.TotalTests)
+	assert.Equal(t, 100, result.TestScore)
+
+	// Verify mocks - note that AI and submission repos should NOT be called
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+	mockEvaluator.AssertNotCalled(t, "CheckSubmissionWithContext")
+	mockSubmissionRepo.AssertNotCalled(t, "Create")
+	mockProgressRepo.AssertNotCalled(t, "Upsert")
+}
+
+func TestRunCode_PartialTestPass(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockUserProgressRepository)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockProgressRepo)
+
+	ctx := context.Background()
+	exercise := createTestExercise()
+	exerciseID := exercise.ID.String()
+	code := "function add(a, b) { return a + b + 1; }" // Wrong implementation
+
+	// Mock exercise repository
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(exercise, nil)
+
+	// Mock code execution - only first test passes
+	execResult := &executor.ExecutionResult{
+		Output:  "2\nAssertionError: expected 6 to equal 5",
+		Success: false,
+		Error:   "Test failed",
+	}
+	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
+
+	// Execute
+	req := RunCodeRequest{
+		ExerciseID: exerciseID,
+		Code:       code,
+		Language:   "javascript",
+	}
+
+	result, err := service.RunCode(ctx, req, "test-request-id")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.NotNil(t, result.ExecutionError)
+	assert.NotNil(t, result.TestResults)
+	assert.Less(t, result.TestScore, 100) // Not all tests passed
+
+	// Verify
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+}
+
+func TestRunCode_ExerciseNotFound(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockUserProgressRepository)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockProgressRepo)
+
+	ctx := context.Background()
+	exerciseID := "nonexistent-exercise-id"
+
+	// Mock exercise repository to return error
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(nil, repository.ErrNotFound)
+
+	// Execute
+	req := RunCodeRequest{
+		ExerciseID: exerciseID,
+		Code:       "some code",
+		Language:   "javascript",
+	}
+
+	result, err := service.RunCode(ctx, req, "test-request-id")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "exercise not found")
+
+	// Verify
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertNotCalled(t, "ExecuteCodeWithContext")
+}
+
+func TestRunCode_ExecutionError(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockUserProgressRepository)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockProgressRepo)
+
+	ctx := context.Background()
+	exercise := createTestExercise()
+	exerciseID := exercise.ID.String()
+	code := "function add(a, b) { return a +" // Syntax error
+
+	// Mock exercise repository
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(exercise, nil)
+
+	// Mock code execution with syntax error
+	execResult := &executor.ExecutionResult{
+		Output:  "",
+		Success: false,
+		Error:   "SyntaxError: Unexpected end of input",
+	}
+	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
+
+	// Execute
+	req := RunCodeRequest{
+		ExerciseID: exerciseID,
+		Code:       code,
+		Language:   "javascript",
+	}
+
+	result, err := service.RunCode(ctx, req, "test-request-id")
+
+	// Assert - should succeed but with error in result
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.NotNil(t, result.ExecutionError)
+	assert.Contains(t, *result.ExecutionError, "SyntaxError")
+	assert.Equal(t, 0, result.TestScore) // No tests passed
+
+	// Verify
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+}

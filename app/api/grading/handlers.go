@@ -11,13 +11,21 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// GradingService defines the interface for grading operations
+// This allows for easier testing with mocks
+type GradingService interface {
+	SubmitCode(ctx context.Context, req domainGrading.SubmitCodeRequest, requestID string) (*domainGrading.SubmissionResult, error)
+	RunCode(ctx context.Context, req domainGrading.RunCodeRequest, requestID string) (*domainGrading.RunCodeResult, error)
+	GetPoolStatus() map[string]interface{}
+}
+
 // SubmissionHandler handles HTTP requests for code submission and execution
 type SubmissionHandler struct {
-	gradingService *domainGrading.GradingService
+	gradingService GradingService
 }
 
 // NewSubmissionHandler creates a new submission handler
-func NewSubmissionHandler(gradingService *domainGrading.GradingService) *SubmissionHandler {
+func NewSubmissionHandler(gradingService GradingService) *SubmissionHandler {
 	if gradingService == nil {
 		panic("grading service is required")
 	}
