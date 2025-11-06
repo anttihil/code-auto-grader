@@ -336,6 +336,9 @@ cat > %s && %s %s 2>&1`,
 			}
 		}
 
+		// Sanitize container paths from error messages
+		errorMsg = sanitizeErrorMessage(errorMsg, containerPath)
+
 		// For compiled languages, detect compilation vs runtime errors
 		if config.RequiresCompile {
 			if strings.Contains(errorMsg, "error:") || strings.Contains(errorMsg, "error[E") {
@@ -364,6 +367,33 @@ func generateRandomID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// sanitizeErrorMessage removes container-specific paths from error messages
+// Converts "/workspace/tmp/ad894b93_code.rs:26:28" to "line 26, column 28"
+func sanitizeErrorMessage(errorMsg, containerPath string) string {
+	if errorMsg == "" {
+		return errorMsg
+	}
+
+	// Extract the base filename pattern (e.g., "/workspace/tmp/ad894b93_code.rs")
+	// containerPath is like "/workspace/tmp/ad894b93_code.rs"
+
+	// Replace full paths with just "line X, column Y" or "line X"
+	// Pattern: /workspace/tmp/HASH_code.EXT:LINE:COLUMN
+	lines := strings.Split(errorMsg, "\n")
+	sanitized := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		// Replace container path references
+		if strings.Contains(line, containerPath) {
+			// Extract line:column from paths like "/workspace/tmp/ad894b93_code.rs:26:28"
+			line = strings.ReplaceAll(line, containerPath, "(your code)")
+		}
+		sanitized = append(sanitized, line)
+	}
+
+	return strings.Join(sanitized, "\n")
 }
 
 // Cleanup stops all container pools with graceful shutdown (call on shutdown)
