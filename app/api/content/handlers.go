@@ -43,8 +43,8 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusNotFound, ErrorResponse{
-			Success: false,
 			Error:   "Exercise not found",
+			Message: err.Error(),
 		})
 	}
 
@@ -95,7 +95,6 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 	}
 
 	response := ExerciseResponse{
-		Success:          true,
 		ID:               view.Exercise.ID.String(),
 		NodeID:           view.Exercise.NodeID.String(),
 		Title:            view.Exercise.Title,
@@ -128,8 +127,8 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Success: false,
 			Error:   "Invalid request body",
+			Message: err.Error(),
 		})
 	}
 
@@ -141,7 +140,6 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Success: false,
 			Error:   "Failed to generate exercise",
 			Message: err.Error(),
 		})
@@ -166,7 +164,6 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	}
 
 	response := GenerateExerciseResponse{
-		Success:        true,
 		Title:          result.Title,
 		Description:    result.Description,
 		Difficulty:     result.Difficulty,
@@ -204,7 +201,6 @@ func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 	}
 
 	response := SampleExerciseResponse{
-		Success:        true,
 		Title:          sample.Title,
 		Description:    sample.Description,
 		Difficulty:     sample.Difficulty,

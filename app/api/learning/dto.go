@@ -13,7 +13,6 @@ import (
 
 // TechTreeResponse represents a tech tree with all nodes and user progress
 type TechTreeResponse struct {
-	Success     bool                 `json:"success"`
 	ID          string               `json:"id"`
 	Name        string               `json:"name"`
 	Slug        string               `json:"slug"`
@@ -50,7 +49,6 @@ type ProgressData struct {
 
 // NodeResponse represents a node with its exercises and user progress
 type NodeResponse struct {
-	Success            bool                   `json:"success"`
 	ID                 string                 `json:"id"`
 	TechTreeID         string                 `json:"tech_tree_id"`
 	Name               string                 `json:"name"`
@@ -82,6 +80,6 @@ type ExerciseSummary struct {
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Success bool   `json:"success"`
 	Error   string `json:"error"`
+	Message string `json:"message,omitempty"`
 }

@@ -162,7 +162,6 @@ func TestSubmitToExercise_HappyPath(t *testing.T) {
 
 	var response SubmissionResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.True(t, response.Success)
 	assert.Equal(t, "submission-123", response.SubmissionID)
 	assert.Equal(t, 96, response.TotalScore)
 	assert.Equal(t, 1, response.AttemptNumber)
@@ -217,7 +216,6 @@ func TestSubmitToExercise_InvalidJSON(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Invalid request body", response.Error)
 }
 
@@ -242,7 +240,6 @@ func TestSubmitToExercise_MissingCode(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Code is required", response.Error)
 }
 
@@ -271,7 +268,6 @@ func TestSubmitToExercise_IdenticalToStarter(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "IDENTICAL_TO_STARTER", response.Error)
 	assert.Contains(t, response.Message, "identical")
 
@@ -302,7 +298,6 @@ func TestSubmitToExercise_TrivialChanges(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "TRIVIAL_CHANGES", response.Error)
 	assert.Contains(t, response.Message, "trivial")
 
@@ -333,7 +328,6 @@ func TestSubmitToExercise_ServiceError(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Failed to process submission", response.Error)
 
 	mockService.AssertExpectations(t)
@@ -371,7 +365,6 @@ func TestRunCode_HappyPath(t *testing.T) {
 
 	var response RunCodeResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.True(t, response.Success)
 	assert.Equal(t, 100, response.TestScore)
 	assert.NotNil(t, response.TestResults)
 
@@ -399,7 +392,6 @@ func TestRunCode_MissingCode(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Code is required", response.Error)
 }
 
@@ -424,7 +416,6 @@ func TestRunCode_InvalidJSON(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Invalid request body", response.Error)
 }
 
@@ -452,7 +443,6 @@ func TestRunCode_ServiceError(t *testing.T) {
 
 	var response ErrorResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.False(t, response.Success)
 	assert.Equal(t, "Failed to run code", response.Error)
 
 	mockService.AssertExpectations(t)
@@ -516,7 +506,6 @@ func TestGetPoolStatus_Success(t *testing.T) {
 
 	var response map[string]interface{}
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.True(t, response["success"].(bool))
 	assert.NotNil(t, response["javascript"])
 	assert.NotNil(t, response["python"])
 
@@ -542,7 +531,8 @@ func TestGetPoolStatus_EmptyPools(t *testing.T) {
 
 	var response map[string]interface{}
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.True(t, response["success"].(bool))
+	// Response should be an empty map when no pools exist
+	assert.Empty(t, response)
 
 	mockService.AssertExpectations(t)
 }

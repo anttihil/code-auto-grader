@@ -39,7 +39,6 @@ func (h *TechTreeHandler) GetTechTree(c echo.Context) error {
 	if err != nil {
 		if _, ok := err.(*domainLearning.TechTreeNotFoundError); ok {
 			return c.JSON(http.StatusNotFound, ErrorResponse{
-				Success: false,
 				Error:   "Tech tree not found",
 			})
 		}
@@ -48,8 +47,8 @@ func (h *TechTreeHandler) GetTechTree(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Success: false,
 			Error:   "Failed to fetch tech tree",
+			Message: err.Error(),
 		})
 	}
 
@@ -90,7 +89,6 @@ func (h *TechTreeHandler) GetTechTree(c echo.Context) error {
 	}
 
 	response := TechTreeResponse{
-		Success:     true,
 		ID:          view.TechTree.ID.String(),
 		Name:        view.TechTree.Name,
 		Slug:        view.TechTree.Slug,
@@ -131,7 +129,6 @@ func (h *NodeHandler) GetNode(c echo.Context) error {
 	if err != nil {
 		if _, ok := err.(*domainLearning.NodeNotFoundError); ok {
 			return c.JSON(http.StatusNotFound, ErrorResponse{
-				Success: false,
 				Error:   "Node not found",
 			})
 		}
@@ -140,8 +137,8 @@ func (h *NodeHandler) GetNode(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Success: false,
 			Error:   "Failed to fetch node",
+			Message: err.Error(),
 		})
 	}
 
@@ -189,7 +186,6 @@ func (h *NodeHandler) GetNode(c echo.Context) error {
 	}
 
 	response := NodeResponse{
-		Success:            true,
 		ID:                 view.Node.ID.String(),
 		TechTreeID:         view.Node.TechTreeID.String(),
 		Name:               view.Node.Name,

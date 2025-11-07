@@ -16,7 +16,6 @@ type RunCodeRequest struct {
 
 // SubmissionResponse represents the HTTP response for a code submission
 type SubmissionResponse struct {
-	Success         bool                `json:"success"`
 	SubmissionID    string              `json:"submission_id"`
 	ExecutionOutput string              `json:"execution_output"`
 	ExecutionError  *string             `json:"execution_error,omitempty"`
@@ -30,7 +29,6 @@ type SubmissionResponse struct {
 
 // RunCodeResponse represents the HTTP response for code execution with test cases
 type RunCodeResponse struct {
-	Success         bool                `json:"success"`
 	ExecutionOutput string              `json:"execution_output"`
 	ExecutionError  *string             `json:"execution_error,omitempty"`
 	TestResults     *models.TestResults `json:"test_results"`
@@ -39,7 +37,6 @@ type RunCodeResponse struct {
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Success bool   `json:"success"`
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
 }

@@ -230,16 +230,16 @@ function App() {
     setError(null);
     try {
       const response = await fetch(`/api/tech-tree/${treeId}`);
-      if (!response.ok) throw new Error("Failed to load tech tree");
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to load tech tree");
+        return;
+      }
       const data = await response.json();
 
       console.log("Loaded tech tree data:", data);
 
-      if (data.success) {
-        setTechTree(data);
-      } else {
-        setError(data.error || "Failed to load tech tree");
-      }
+      setTechTree(data);
     } catch (err) {
       console.error("Error loading tech tree:", err);
       setError("Error connecting to server. Make sure the server is running.");
@@ -253,16 +253,16 @@ function App() {
     setError(null);
     try {
       const response = await fetch(`/api/node/${nodeId}`);
-      if (!response.ok) throw new Error("Failed to load node");
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to load node");
+        return;
+      }
       const data = await response.json();
 
       console.log("Loaded node data:", data);
 
-      if (data.success) {
-        setCurrentNode(data);
-      } else {
-        setError(data.error || "Failed to load node");
-      }
+      setCurrentNode(data);
     } catch (err) {
       console.error("Error loading node:", err);
       setError("Error connecting to server. Make sure the server is running.");
@@ -276,31 +276,30 @@ function App() {
     setError(null);
     try {
       const response = await fetch(`/api/exercise/${exerciseId}`);
-      if (!response.ok) throw new Error("Failed to load exercise");
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.message || errorData.error || "Failed to load exercise");
+        return;
+      }
       const data = await response.json();
 
       console.log("Loaded exercise data:", data);
 
-      if (data.success) {
-        // Exercise fields are now spread at top level along with submission history
-        const { success, ...exerciseData } = data;
-        const exerciseWithHistory: ExerciseWithHistory = {
-          ...exerciseData,
-          submissions: exerciseData.submissions || [],
-          best_score: exerciseData.best_score || 0,
-          attempt_count: exerciseData.attempt_count || 0,
-        };
-        setCurrentExercise(exerciseWithHistory);
-        // Set starter code
-        if (data.content?.starter_code) {
-          setCode(data.content.starter_code);
-        } else {
-          setCode("// Write your code here\n");
-        }
-        setOutput("");
+      // Exercise fields are now spread at top level along with submission history
+      const exerciseWithHistory: ExerciseWithHistory = {
+        ...data,
+        submissions: data.submissions || [],
+        best_score: data.best_score || 0,
+        attempt_count: data.attempt_count || 0,
+      };
+      setCurrentExercise(exerciseWithHistory);
+      // Set starter code
+      if (data.content?.starter_code) {
+        setCode(data.content.starter_code);
       } else {
-        setError(data.error || "Failed to load exercise");
+        setCode("// Write your code here\n");
       }
+      setOutput("");
     } catch (err) {
       console.error("Error loading exercise:", err);
       setError("Error connecting to server. Make sure the server is running.");
@@ -332,42 +331,45 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: code(), language }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setOutputClass("output error");
+        setOutput(`Error: ${errorData.message || errorData.error || "Failed to run code. Please try again."}`);
+        return;
+      }
+
       const data = await response.json();
 
-      if (data.success) {
-        // Format test results output
-        let outputText = "";
+      // Format test results output
+      let outputText = "";
 
-        if (data.execution_error) {
-          outputText += `❌ Execution Error:\n${data.execution_error}\n\n`;
-        }
-
-        if (data.test_results) {
-          const passed = data.test_results.passed_tests;
-          const total = data.test_results.total_tests;
-          outputText += `Test Results: ${passed}/${total} passed (Score: ${data.test_score}%)\n\n`;
-
-          if (data.test_results.results) {
-            data.test_results.results.forEach((test: any) => {
-              const icon = test.status === "passed" ? "✅" : "❌";
-              outputText += `${icon} ${test.name}: ${test.status.toUpperCase()}\n`;
-              if (test.error) {
-                outputText += `   Error: ${test.error}\n`;
-              }
-            });
-          }
-        }
-
-        if (data.execution_output) {
-          outputText += `\n${data.execution_output}`;
-        }
-
-        setOutputClass(data.test_results?.passed_tests === data.test_results?.total_tests ? "output success" : "output error");
-        setOutput(outputText || "Code executed successfully (no output)");
-      } else {
-        setOutputClass("output error");
-        setOutput(`Error: ${data.error || data.message || "Failed to run code. Please try again."}`);
+      if (data.execution_error) {
+        outputText += `❌ Execution Error:\n${data.execution_error}\n\n`;
       }
+
+      if (data.test_results) {
+        const passed = data.test_results.passed_tests;
+        const total = data.test_results.total_tests;
+        outputText += `Test Results: ${passed}/${total} passed (Score: ${data.test_score}%)\n\n`;
+
+        if (data.test_results.results) {
+          data.test_results.results.forEach((test: any) => {
+            const icon = test.status === "passed" ? "✅" : "❌";
+            outputText += `${icon} ${test.name}: ${test.status.toUpperCase()}\n`;
+            if (test.error) {
+              outputText += `   Error: ${test.error}\n`;
+            }
+          });
+        }
+      }
+
+      if (data.execution_output) {
+        outputText += `\n${data.execution_output}`;
+      }
+
+      setOutputClass(data.test_results?.passed_tests === data.test_results?.total_tests ? "output success" : "output error");
+      setOutput(outputText || "Code executed successfully (no output)");
     } catch (error) {
       console.error("Error running code:", error);
       setOutputClass("output error");
@@ -393,19 +395,22 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: code(), language }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.message || errorData.error || "Failed to submit code. Please try again.");
+        return;
+      }
+
       const data = await response.json();
 
-      if (data.success) {
-        // Reload exercise to get updated submission history
-        await loadExercise(exercise.id);
-        // Scroll to feedback section
-        setTimeout(() => {
-          const feedbackSection = document.querySelector(".submission-history");
-          feedbackSection?.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-      } else {
-        alert(data.error || "Failed to submit code. Please try again.");
-      }
+      // Reload exercise to get updated submission history
+      await loadExercise(exercise.id);
+      // Scroll to feedback section
+      setTimeout(() => {
+        const feedbackSection = document.querySelector(".submission-history");
+        feedbackSection?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
     } catch (error) {
       console.error("Error submitting code:", error);
       alert("Error connecting to server.");

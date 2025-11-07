@@ -24,7 +24,6 @@ type GenerateExerciseRequest struct {
 
 // ExerciseResponse represents a single exercise with submission history
 type ExerciseResponse struct {
-	Success          bool                    `json:"success"`
 	ID               string                  `json:"id"`
 	NodeID           string                  `json:"node_id"`
 	Title            string                  `json:"title"`
@@ -85,7 +84,6 @@ type AIFeedback struct {
 
 // GenerateExerciseResponse represents the response for exercise generation
 type GenerateExerciseResponse struct {
-	Success        bool       `json:"success"`
 	Title          string     `json:"title"`
 	Description    string     `json:"description"`
 	Difficulty     string     `json:"difficulty"`
@@ -111,7 +109,6 @@ type TestCase struct {
 
 // SampleExerciseResponse represents the response for getting a sample exercise
 type SampleExerciseResponse struct {
-	Success        bool       `json:"success"`
 	Title          string     `json:"title"`
 	Description    string     `json:"description"`
 	Difficulty     string     `json:"difficulty"`
@@ -124,7 +121,6 @@ type SampleExerciseResponse struct {
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Success bool   `json:"success"`
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
 }

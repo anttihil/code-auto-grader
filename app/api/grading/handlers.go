@@ -56,7 +56,6 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Success: false,
 			Error:   "Invalid request body",
 		})
 	}
@@ -66,7 +65,6 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 			slog.String("request_id", requestID),
 		)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Success: false,
 			Error:   "Code is required",
 		})
 	}
@@ -88,14 +86,12 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 		// Check for specific error types
 		if err.Error() == "IDENTICAL_TO_STARTER: submission is identical to the starter code" {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Success: false,
 				Error:   "IDENTICAL_TO_STARTER",
 				Message: "Your submission is identical to the starter code. Please implement the solution described in the exercise.",
 			})
 		}
 		if err.Error() == "TRIVIAL_CHANGES: submission only contains trivial changes" {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Success: false,
 				Error:   "TRIVIAL_CHANGES",
 				Message: "Your submission only contains trivial changes (comments or formatting). Please implement a solution to the exercise.",
 			})
@@ -106,14 +102,12 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Success: false,
 			Error:   "Failed to process submission",
 			Message: err.Error(),
 		})
 	}
 
 	return c.JSON(http.StatusOK, SubmissionResponse{
-		Success:         true,
 		SubmissionID:    result.SubmissionID,
 		ExecutionOutput: result.ExecutionOutput,
 		ExecutionError:  result.ExecutionError,
@@ -140,7 +134,6 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Success: false,
 			Error:   "Invalid request body",
 		})
 	}
@@ -150,7 +143,6 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 			slog.String("request_id", requestID),
 		)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Success: false,
 			Error:   "Code is required",
 		})
 	}
@@ -178,7 +170,6 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 			slog.String("error", err.Error()),
 		)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Success: false,
 			Error:   "Failed to run code",
 			Message: err.Error(),
 		})
@@ -190,7 +181,6 @@ func (h *SubmissionHandler) RunCode(c echo.Context) error {
 	)
 
 	return c.JSON(http.StatusOK, RunCodeResponse{
-		Success:         true,
 		ExecutionOutput: result.ExecutionOutput,
 		ExecutionError:  result.ExecutionError,
 		TestResults:     result.TestResults,
@@ -204,9 +194,7 @@ func (h *SubmissionHandler) GetPoolStatus(c echo.Context) error {
 	status := h.gradingService.GetPoolStatus()
 
 	// Spread pool status into response
-	response := map[string]interface{}{
-		"success": true,
-	}
+	response := map[string]interface{}{}
 	for lang, poolStatus := range status {
 		response[lang] = poolStatus
 	}
