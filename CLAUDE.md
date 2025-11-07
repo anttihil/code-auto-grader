@@ -50,16 +50,19 @@ Before coding, understand these constraints:
 **For a new endpoint in an existing domain:**
 
 1. **Domain Service** (`app/domain/[domain]/service.go`):
+
    - Add business logic method to the service
    - Return domain models, not database models
    - Keep logic framework-agnostic (testable without HTTP)
 
 2. **API Handler** (`app/api/[domain]/handlers.go`):
+
    - Add thin HTTP handler method (50-100 LOC)
    - Parse request, call domain service, format response
    - Handle HTTP-specific concerns (status codes, validation)
 
 3. **Routes** (`app/main.go`):
+
    - Register new route with handler method
    - Use appropriate Echo group (e.g., `api.POST("/endpoint/:id", handler.Method)`)
 
@@ -68,6 +71,7 @@ Before coding, understand these constraints:
    - Add HTTP handler test to `app/api/[domain]/handlers_test.go` (with httptest)
 
 **Example workflow:**
+
 ```go
 // 1. Add to domain/grading/service.go
 func (s *GradingService) GetSubmission(ctx context.Context, submissionID string) (*SubmissionResult, error) {
@@ -145,11 +149,13 @@ app/
 ```
 
 **Key Files to Read:**
+
 - `app/domain/README.md` - Architecture patterns and examples
 - `app/main.go` - Dependency injection and routing
 - `app/repository/repository.go` - Data access interfaces
 
 **Multi-file Components** (use Glob to explore):
+
 - `app/domain/*/service.go` - Domain services
 - `app/api/*/handlers.go` - HTTP handlers
 - `app/repository/*_repo.go` - Repository implementations
@@ -180,6 +186,7 @@ POST /api/submission/:exerciseId
 ```
 
 **Key Insight**: The domain layer orchestrates business logic without knowing about HTTP. The API layer handles HTTP concerns. This separation enables:
+
 - Testing domain logic without HTTP mocks
 - Reusing domain logic in CLI tools, cron jobs, etc.
 - Changing HTTP frameworks without touching business logic
@@ -272,6 +279,7 @@ cd app && go test -v -run Integration  # Integration tests
 ```
 
 **Test Coverage**: 100% coverage of domain and API layers
+
 - **Domain Tests** (`domain/*/service_test.go`): Pure unit tests with mocks, no HTTP/DB
 - **API Tests** (`api/*/handlers_test.go`): HTTP handler tests with httptest
 - **Repository Tests**: Integration tests with real test database
@@ -279,6 +287,7 @@ cd app && go test -v -run Integration  # Integration tests
 - **Pattern**: Use `database.NewTestDatabase(t)` in tests for auto-setup/cleanup
 
 **Test Structure**:
+
 ```
 ✅ domain/grading/scorer_test.go       - Scoring algorithm (35 tests)
 ✅ domain/grading/similarity_test.go   - Code similarity (15 tests)
@@ -289,8 +298,6 @@ cd app && go test -v -run Integration  # Integration tests
 ✅ api/learning/handlers_test.go       - Learning endpoints (11 tests)
 ✅ api/content/handlers_test.go        - Content endpoints (12 tests)
 ```
-
-See `REFACTORING_STATUS.md` for complete test strategy guide.
 
 ## Environment Variables
 

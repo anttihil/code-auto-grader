@@ -432,7 +432,3 @@ Total: 134 test cases, ~5,200 LOC of test code
 3. **Test at the domain level first** - Fast, isolated, comprehensive
 4. **API layer is thin** - Just HTTP request/response mapping (50-100 LOC)
 5. **Each domain is independent** - Can evolve without affecting others
-
----
-
-**Questions?** See `REFACTORING_STATUS.md` for the complete refactoring journey and test strategy guide.
