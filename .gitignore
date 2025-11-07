@@ -30,9 +30,9 @@ pids
 *.seed
 
 # Temporary files
-/tmp/
 *.tmp
 .DS_Store
+*/**/tmp
 
 # IDE
 .vscode/
@@ -40,6 +40,3 @@ pids
 *.swp
 *.swo
 *~
-
-# Code execution temporary files
-/tmp/code-executions/
