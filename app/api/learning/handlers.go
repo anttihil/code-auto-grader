@@ -38,57 +38,66 @@ func (h *TechTreeHandler) GetTechTree(c echo.Context) error {
 	view, err := h.learningService.GetTechTree(ctx, treeID, userID, requestID)
 	if err != nil {
 		if _, ok := err.(*domainLearning.TechTreeNotFoundError); ok {
-			return c.JSON(http.StatusNotFound, map[string]interface{}{
-				"success": false,
-				"error":   "Tech tree not found",
+			return c.JSON(http.StatusNotFound, ErrorResponse{
+				Success: false,
+				Error:   "Tech tree not found",
 			})
 		}
 		logger.Logger.Error("failed to fetch tech tree",
 			slog.String("request_id", requestID),
 			slog.String("error", err.Error()),
 		)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "Failed to fetch tech tree",
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Success: false,
+			Error:   "Failed to fetch tech tree",
 		})
 	}
 
-	// Build nodes with embedded progress
-	nodesWithProgress := make([]map[string]interface{}, 0, len(view.Nodes))
-	for _, nodeWithProg := range view.Nodes {
-		nodeData := map[string]interface{}{
-			"id":                  nodeWithProg.Node.ID,
-			"tech_tree_id":        nodeWithProg.Node.TechTreeID,
-			"name":                nodeWithProg.Node.Name,
-			"slug":                nodeWithProg.Node.Slug,
-			"description":         nodeWithProg.Node.Description,
-			"learning_objectives": nodeWithProg.Node.LearningObjectives,
-			"order_index":         nodeWithProg.Node.OrderIndex,
-			"estimated_minutes":   nodeWithProg.Node.EstimatedMinutes,
-			"created_at":          nodeWithProg.Node.CreatedAt,
-			"updated_at":          nodeWithProg.Node.UpdatedAt,
-			"progress": map[string]interface{}{
-				"node_id":             nodeWithProg.Progress.NodeID,
-				"exercises_completed": nodeWithProg.Progress.ExercisesCompleted,
-				"total_exercises":     nodeWithProg.Progress.TotalExercises,
-				"mastery_achieved":    nodeWithProg.Progress.MasteryAchieved,
-				"is_unlocked":         nodeWithProg.Progress.IsUnlocked,
-				"best_scores":         nodeWithProg.Progress.BestScores,
+	// Convert nodes with progress to DTO
+	nodes := make([]NodeWithProgress, len(view.Nodes))
+	for i, nodeWithProg := range view.Nodes {
+		// Convert best scores from map[string]int to map[string]float64
+		bestScores := make(map[string]float64)
+		for k, v := range nodeWithProg.Progress.BestScores {
+			bestScores[k] = float64(v)
+		}
+
+		estimatedMins := 0
+		if nodeWithProg.Node.EstimatedMinutes != nil {
+			estimatedMins = *nodeWithProg.Node.EstimatedMinutes
+		}
+
+		nodes[i] = NodeWithProgress{
+			ID:                 nodeWithProg.Node.ID.String(),
+			TechTreeID:         nodeWithProg.Node.TechTreeID.String(),
+			Name:               nodeWithProg.Node.Name,
+			Slug:               nodeWithProg.Node.Slug,
+			Description:        getStringValue(nodeWithProg.Node.Description),
+			LearningObjectives: nodeWithProg.Node.LearningObjectives,
+			OrderIndex:         nodeWithProg.Node.OrderIndex,
+			EstimatedMinutes:   estimatedMins,
+			CreatedAt:          nodeWithProg.Node.CreatedAt,
+			UpdatedAt:          nodeWithProg.Node.UpdatedAt,
+			Progress: ProgressData{
+				NodeID:             nodeWithProg.Progress.NodeID,
+				ExercisesCompleted: nodeWithProg.Progress.ExercisesCompleted,
+				TotalExercises:     nodeWithProg.Progress.TotalExercises,
+				MasteryAchieved:    nodeWithProg.Progress.MasteryAchieved,
+				IsUnlocked:         nodeWithProg.Progress.IsUnlocked,
+				BestScores:         bestScores,
 			},
 		}
-		nodesWithProgress = append(nodesWithProgress, nodeData)
 	}
 
-	// Flatten tech tree fields to response root level with nodes embedded
-	response := map[string]interface{}{
-		"success":     true,
-		"id":          view.TechTree.ID,
-		"name":        view.TechTree.Name,
-		"slug":        view.TechTree.Slug,
-		"description": view.TechTree.Description,
-		"language":    view.TechTree.Language,
-		"created_at":  view.TechTree.CreatedAt,
-		"nodes":       nodesWithProgress,
+	response := TechTreeResponse{
+		Success:     true,
+		ID:          view.TechTree.ID.String(),
+		Name:        view.TechTree.Name,
+		Slug:        view.TechTree.Slug,
+		Description: getStringValue(view.TechTree.Description),
+		Language:    view.TechTree.Language,
+		CreatedAt:   view.TechTree.CreatedAt,
+		Nodes:       nodes,
 	}
 
 	return c.JSON(http.StatusOK, response)
@@ -121,49 +130,90 @@ func (h *NodeHandler) GetNode(c echo.Context) error {
 	view, err := h.learningService.GetNode(ctx, nodeID, userID, requestID)
 	if err != nil {
 		if _, ok := err.(*domainLearning.NodeNotFoundError); ok {
-			return c.JSON(http.StatusNotFound, map[string]interface{}{
-				"success": false,
-				"error":   "Node not found",
+			return c.JSON(http.StatusNotFound, ErrorResponse{
+				Success: false,
+				Error:   "Node not found",
 			})
 		}
 		logger.Logger.Error("failed to fetch node",
 			slog.String("request_id", requestID),
 			slog.String("error", err.Error()),
 		)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "Failed to fetch node",
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Success: false,
+			Error:   "Failed to fetch node",
 		})
 	}
 
-	// Build progress data
-	progressData := map[string]interface{}{
-		"node_id":             view.Progress.NodeID,
-		"exercises_completed": view.Progress.ExercisesCompleted,
-		"total_exercises":     view.Progress.TotalExercises,
-		"mastery_achieved":    view.Progress.MasteryAchieved,
-		"is_unlocked":         view.Progress.IsUnlocked,
-		"best_scores":         view.Progress.BestScores,
+	// Convert best scores from map[string]int to map[string]float64
+	bestScores := make(map[string]float64)
+	for k, v := range view.Progress.BestScores {
+		bestScores[k] = float64(v)
 	}
 
-	// Flatten node fields to response root level with embedded progress
-	response := map[string]interface{}{
-		"success":             true,
-		"id":                  view.Node.ID,
-		"tech_tree_id":        view.Node.TechTreeID,
-		"name":                view.Node.Name,
-		"slug":                view.Node.Slug,
-		"description":         view.Node.Description,
-		"learning_objectives": view.Node.LearningObjectives,
-		"order_index":         view.Node.OrderIndex,
-		"estimated_minutes":   view.Node.EstimatedMinutes,
-		"created_at":          view.Node.CreatedAt,
-		"updated_at":          view.Node.UpdatedAt,
-		"progress":            progressData,
-		"exercises":           view.Exercises,
+	progressData := ProgressData{
+		NodeID:             view.Progress.NodeID,
+		ExercisesCompleted: view.Progress.ExercisesCompleted,
+		TotalExercises:     view.Progress.TotalExercises,
+		MasteryAchieved:    view.Progress.MasteryAchieved,
+		IsUnlocked:         view.Progress.IsUnlocked,
+		BestScores:         bestScores,
+	}
+
+	// Convert exercises to DTO
+	exercises := make([]ExerciseSummary, len(view.Exercises))
+	for i, ex := range view.Exercises {
+		estimatedMins := 0
+		if ex.EstimatedMinutes != nil {
+			estimatedMins = *ex.EstimatedMinutes
+		}
+
+		exercises[i] = ExerciseSummary{
+			ID:               ex.ID.String(),
+			NodeID:           ex.NodeID.String(),
+			Title:            ex.Title,
+			Slug:             ex.Slug,
+			Description:      ex.Description,
+			Difficulty:       ex.Difficulty,
+			EstimatedMinutes: estimatedMins,
+			OrderIndex:       ex.OrderIndex,
+			Content:          ex.Content,
+			CreatedAt:        ex.CreatedAt,
+			UpdatedAt:        ex.UpdatedAt,
+		}
+	}
+
+	estimatedMins := 0
+	if view.Node.EstimatedMinutes != nil {
+		estimatedMins = *view.Node.EstimatedMinutes
+	}
+
+	response := NodeResponse{
+		Success:            true,
+		ID:                 view.Node.ID.String(),
+		TechTreeID:         view.Node.TechTreeID.String(),
+		Name:               view.Node.Name,
+		Slug:               view.Node.Slug,
+		Description:        getStringValue(view.Node.Description),
+		LearningObjectives: view.Node.LearningObjectives,
+		OrderIndex:         view.Node.OrderIndex,
+		EstimatedMinutes:   estimatedMins,
+		CreatedAt:          view.Node.CreatedAt,
+		UpdatedAt:          view.Node.UpdatedAt,
+		Progress:           progressData,
+		Exercises:          exercises,
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// Helper functions
+
+func getStringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // getRequestContext extracts request context with request ID from Echo context

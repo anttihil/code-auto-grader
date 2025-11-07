@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"os"
 
+	"net/http"
+	"time"
+
 	"github.com/anttihil/code-auto-grader/api/content"
 	"github.com/anttihil/code-auto-grader/api/grading"
 	"github.com/anttihil/code-auto-grader/api/learning"
@@ -12,7 +15,6 @@ import (
 	domainContent "github.com/anttihil/code-auto-grader/domain/content"
 	domainGrading "github.com/anttihil/code-auto-grader/domain/grading"
 	domainLearning "github.com/anttihil/code-auto-grader/domain/learning"
-	"github.com/anttihil/code-auto-grader/handlers"
 	"github.com/anttihil/code-auto-grader/internal/logger"
 	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
 	"github.com/anttihil/code-auto-grader/repository"
@@ -145,7 +147,12 @@ func main() {
 	e.Static("/", "./web/dist")
 
 	// API routes
-	e.GET("/api/health", handlers.HealthCheck)
+	e.GET("/api/health", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
 
 	// Exercise routes (legacy)
 	e.GET("/api/exercise/sample", exerciseHandler.GetSampleExercise)

@@ -11,17 +11,21 @@ interface TechTree {
   description: string;
   created_at: string;
   language: string;
-  difficulty_level: string;
-  estimated_hours: number;
+  difficulty_level?: string;
+  estimated_hours?: number;
 }
 
 interface Node {
   id: string;
   tech_tree_id: string;
   name: string;
+  slug: string;
   description: string;
+  learning_objectives: string[];
   order_index: number;
+  estimated_minutes: number;
   created_at: string;
+  updated_at: string;
 }
 
 interface Hint {
@@ -34,8 +38,10 @@ interface Exercise {
   id: string;
   node_id: string;
   title: string;
+  slug: string;
   description: string;
   difficulty: string;
+  estimated_minutes: number;
   order_index: number;
   content: {
     starter_code?: string;
@@ -48,6 +54,7 @@ interface Exercise {
     expected_outcomes?: string[];
   };
   created_at: string;
+  updated_at: string;
 }
 
 interface TestCase {

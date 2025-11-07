@@ -8,6 +8,7 @@ import (
 
 	domainContent "github.com/anttihil/code-auto-grader/domain/content"
 	"github.com/anttihil/code-auto-grader/internal/logger"
+	"github.com/anttihil/code-auto-grader/models"
 	"github.com/labstack/echo/v4"
 )
 
@@ -41,29 +42,74 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 			slog.String("request_id", requestID),
 			slog.String("error", err.Error()),
 		)
-		return c.JSON(http.StatusNotFound, map[string]interface{}{
-			"success": false,
-			"error":   "Exercise not found",
+		return c.JSON(http.StatusNotFound, ErrorResponse{
+			Success: false,
+			Error:   "Exercise not found",
 		})
 	}
 
-	// Spread exercise fields to response root level with submission data
-	response := map[string]interface{}{
-		"success":           true,
-		"id":                view.Exercise.ID,
-		"node_id":           view.Exercise.NodeID,
-		"title":             view.Exercise.Title,
-		"slug":              view.Exercise.Slug,
-		"description":       view.Exercise.Description,
-		"difficulty":        view.Exercise.Difficulty,
-		"estimated_minutes": view.Exercise.EstimatedMinutes,
-		"order_index":       view.Exercise.OrderIndex,
-		"content":           view.Exercise.Content,
-		"created_at":        view.Exercise.CreatedAt,
-		"updated_at":        view.Exercise.UpdatedAt,
-		"submissions":       view.Submissions,
-		"best_score":        view.BestScore,
-		"attempt_count":     view.AttemptCount,
+	// Convert submissions to DTO format
+	submissions := make([]SubmissionSummary, len(view.Submissions))
+	for i, sub := range view.Submissions {
+		aiScore := 0.0
+		if sub.AIScore != nil {
+			aiScore = float64(*sub.AIScore)
+		}
+
+		execTimeMs := 0
+		if sub.ExecutionTimeMs != nil {
+			execTimeMs = *sub.ExecutionTimeMs
+		}
+
+		aiEvalTimeMs := 0
+		if sub.AIEvaluationTimeMs != nil {
+			aiEvalTimeMs = *sub.AIEvaluationTimeMs
+		}
+
+		totalScore := 0.0
+		if sub.TotalScore != nil {
+			totalScore = float64(*sub.TotalScore)
+		}
+
+		submissions[i] = SubmissionSummary{
+			ID:                 sub.ID.String(),
+			ExerciseID:         sub.ExerciseID.String(),
+			UserID:             sub.UserID.String(),
+			SubmittedCode:      sub.SubmittedCode,
+			Language:           sub.Language,
+			ExecutionError:     sub.ExecutionError,
+			TestResults:        convertTestResults(sub.TestResults),
+			AIFeedback:         convertAIFeedback(sub.AIFeedback),
+			AIScore:            aiScore,
+			ExecutionTimeMs:    execTimeMs,
+			AIEvaluationTimeMs: aiEvalTimeMs,
+			AttemptNumber:      sub.AttemptNumber,
+			TotalScore:         totalScore,
+			CreatedAt:          sub.CreatedAt,
+		}
+	}
+
+	estimatedMins := 0
+	if view.Exercise.EstimatedMinutes != nil {
+		estimatedMins = *view.Exercise.EstimatedMinutes
+	}
+
+	response := ExerciseResponse{
+		Success:          true,
+		ID:               view.Exercise.ID.String(),
+		NodeID:           view.Exercise.NodeID.String(),
+		Title:            view.Exercise.Title,
+		Slug:             view.Exercise.Slug,
+		Description:      view.Exercise.Description,
+		Difficulty:       view.Exercise.Difficulty,
+		EstimatedMinutes: estimatedMins,
+		OrderIndex:       view.Exercise.OrderIndex,
+		Content:          view.Exercise.Content,
+		CreatedAt:        view.Exercise.CreatedAt,
+		UpdatedAt:        view.Exercise.UpdatedAt,
+		Submissions:      submissions,
+		BestScore:        float64(view.BestScore),
+		AttemptCount:     view.AttemptCount,
 	}
 
 	return c.JSON(http.StatusOK, response)
@@ -74,20 +120,16 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	ctx, requestID := getRequestContext(c)
 
-	var req struct {
-		Difficulty string `json:"difficulty"`
-		Topic      string `json:"topic"`
-		Language   string `json:"language"`
-	}
+	var req GenerateExerciseRequest
 
 	if err := c.Bind(&req); err != nil {
 		logger.Logger.Warn("invalid request body",
 			slog.String("request_id", requestID),
 			slog.String("error", err.Error()),
 		)
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body",
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Success: false,
+			Error:   "Invalid request body",
 		})
 	}
 
@@ -98,24 +140,44 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 	}, requestID)
 
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "Failed to generate exercise",
-			"message": err.Error(),
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Success: false,
+			Error:   "Failed to generate exercise",
+			Message: err.Error(),
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"success":        true,
-		"title":          result.Title,
-		"description":    result.Description,
-		"difficulty":     result.Difficulty,
-		"language":       result.Language,
-		"starterCode":    result.StarterCode,
-		"hints":          result.Hints,
-		"expectedOutput": result.ExpectedOutput,
-		"testCases":      result.TestCases,
-	})
+	// Convert hints (from strings to structured hints)
+	hints := make([]Hint, len(result.Hints))
+	for i, hintText := range result.Hints {
+		hints[i] = Hint{
+			Order:   i + 1,
+			Title:   "",
+			Content: hintText,
+		}
+	}
+
+	testCases := make([]TestCase, len(result.TestCases))
+	for i, tc := range result.TestCases {
+		testCases[i] = TestCase{
+			Name: tc.Name,
+			Code: tc.Code,
+		}
+	}
+
+	response := GenerateExerciseResponse{
+		Success:        true,
+		Title:          result.Title,
+		Description:    result.Description,
+		Difficulty:     result.Difficulty,
+		Language:       result.Language,
+		StarterCode:    result.StarterCode,
+		Hints:          hints,
+		ExpectedOutput: result.ExpectedOutput,
+		TestCases:      testCases,
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 // GetSampleExercise handles GET /api/exercise/sample
@@ -123,19 +185,74 @@ func (h *ExerciseHandler) GenerateExercise(c echo.Context) error {
 func (h *ExerciseHandler) GetSampleExercise(c echo.Context) error {
 	sample := h.contentService.GetSampleExercise()
 
-	response := map[string]interface{}{
-		"success":        true,
-		"title":          sample.Title,
-		"description":    sample.Description,
-		"difficulty":     sample.Difficulty,
-		"language":       sample.Language,
-		"starterCode":    sample.StarterCode,
-		"hints":          sample.Hints,
-		"expectedOutput": sample.ExpectedOutput,
-		"testCases":      sample.TestCases,
+	// Convert hints (from strings to structured hints)
+	hints := make([]Hint, len(sample.Hints))
+	for i, hintText := range sample.Hints {
+		hints[i] = Hint{
+			Order:   i + 1,
+			Title:   "",
+			Content: hintText,
+		}
+	}
+
+	testCases := make([]TestCase, len(sample.TestCases))
+	for i, tc := range sample.TestCases {
+		testCases[i] = TestCase{
+			Name: tc.Name,
+			Code: tc.Code,
+		}
+	}
+
+	response := SampleExerciseResponse{
+		Success:        true,
+		Title:          sample.Title,
+		Description:    sample.Description,
+		Difficulty:     sample.Difficulty,
+		Language:       sample.Language,
+		StarterCode:    sample.StarterCode,
+		Hints:          hints,
+		ExpectedOutput: sample.ExpectedOutput,
+		TestCases:      testCases,
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// Helper functions to convert domain models to DTOs
+
+func convertTestResults(tr *models.TestResults) TestResults {
+	if tr == nil {
+		return TestResults{}
+	}
+
+	details := make([]TestResult, len(tr.Results))
+	for i, r := range tr.Results {
+		details[i] = TestResult{
+			Name:   r.Name,
+			Passed: r.Status == "passed",
+			Error:  r.Error,
+		}
+	}
+
+	return TestResults{
+		TotalTests:  tr.TotalTests,
+		PassedTests: tr.PassedTests,
+		FailedTests: tr.FailedTests,
+		Details:     details,
+	}
+}
+
+func convertAIFeedback(af *models.AIFeedback) *AIFeedback {
+	if af == nil {
+		return nil
+	}
+
+	return &AIFeedback{
+		Score:        af.Score,
+		Strengths:    af.Strengths,
+		Improvements: af.Improvements,
+		Suggestions:  af.Suggestions,
+	}
 }
 
 // getRequestContext extracts request context with request ID from Echo context
