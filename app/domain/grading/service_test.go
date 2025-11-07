@@ -325,9 +325,8 @@ func TestSubmitCode_HappyPath(t *testing.T) {
 
 	// Mock code execution  - return value matches interface return type
 	execResult := &executor.ExecutionResult{
-		Output:  "2\n5",
-		Success: true,
-		Error:   "",
+		Output: "2\n5",
+		Error:  "",
 	}
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 
@@ -528,9 +527,8 @@ func TestSubmitCode_AIEvaluationFailure_ContinuesWithFallback(t *testing.T) {
 
 	// Mock code execution (successful) - return value matches interface return type
 	execResult := &executor.ExecutionResult{
-		Output:  "2\n5",
-		Success: true,
-		Error:   "",
+		Output: "2\n5",
+		Error:  "",
 	}
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 
@@ -633,9 +631,8 @@ func TestRunCode_HappyPath(t *testing.T) {
 
 	// Mock code execution - all tests pass
 	execResult := &executor.ExecutionResult{
-		Output:  "2\n5",
-		Success: true,
-		Error:   "",
+		Output: "2\n5",
+		Error:  "",
 	}
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 
@@ -687,9 +684,8 @@ func TestRunCode_PartialTestPass(t *testing.T) {
 
 	// Mock code execution - only first test passes
 	execResult := &executor.ExecutionResult{
-		Output:  "2\nAssertionError: expected 6 to equal 5",
-		Success: false,
-		Error:   "Test failed",
+		Output: "2\nAssertionError: expected 6 to equal 5",
+		Error:  "Test failed",
 	}
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 
@@ -769,9 +765,8 @@ func TestRunCode_ExecutionError(t *testing.T) {
 
 	// Mock code execution with syntax error
 	execResult := &executor.ExecutionResult{
-		Output:  "",
-		Success: false,
-		Error:   "SyntaxError: Unexpected end of input",
+		Output: "",
+		Error:  "SyntaxError: Unexpected end of input",
 	}
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 

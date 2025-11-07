@@ -36,13 +36,17 @@ The backend follows a **clean architecture** pattern with three main layers:
 ## 🎯 Key Principles
 
 ### 1. Framework-Agnostic
+
 Domain services have **zero dependencies** on HTTP frameworks or databases:
+
 - ✅ Can be tested without spinning up a server
 - ✅ Can be called from CLI tools, cron jobs, or other services
 - ✅ Easy to change web frameworks (Echo → Fiber → Gin) without touching domain logic
 
 ### 2. Dependency Inversion
+
 Domain services depend on **interfaces**, not concrete implementations:
+
 ```go
 // domain/grading/interfaces.go
 type CodeExecutor interface {
@@ -56,12 +60,15 @@ type GradingService struct {
 ```
 
 This allows:
+
 - Easy mocking in tests
 - Swapping implementations without changing domain code
 - Clear boundaries between layers
 
 ### 3. Pure Business Logic
+
 Domain code focuses on **what** the application does, not **how** it's delivered:
+
 - Scoring algorithms (60% tests + 40% AI)
 - Code similarity detection for anti-gaming
 - Progress tracking and mastery calculation
@@ -72,9 +79,11 @@ Domain code focuses on **what** the application does, not **how** it's delivered
 ### Three Domains
 
 #### 1. **grading/** - Submission & Evaluation
+
 **Responsibility**: Handle code submissions, execute tests, evaluate with AI, calculate scores
 
 **Files**:
+
 - `service.go` - Orchestrates submission workflow
 - `scorer.go` - Scoring algorithm (60/40 weighted average)
 - `similarity.go` - Anti-gaming code similarity checks
@@ -83,20 +92,24 @@ Domain code focuses on **what** the application does, not **how** it's delivered
 - `adapters.go` - Bridge legacy services to domain interfaces
 
 **Key Methods**:
+
 ```go
 func (s *GradingService) SubmitCode(ctx context.Context, req SubmitCodeRequest, requestID string) (*SubmissionResult, error)
 func (s *GradingService) RunCode(ctx context.Context, req RunCodeRequest, requestID string) (*RunCodeResult, error)
 ```
 
 #### 2. **learning/** - Tech Tree & Progress
+
 **Responsibility**: Navigate tech trees, track progress, calculate completion percentages
 
 **Files**:
+
 - `service.go` - Tech tree navigation and progress calculation
 - `models.go` - View models (`TechTreeView`, `NodeView`, `NodeProgress`)
 - `errors.go` - Domain-specific errors
 
 **Key Methods**:
+
 ```go
 func (s *LearningService) GetTechTree(ctx context.Context, treeID, userID, requestID string) (*TechTreeView, error)
 func (s *LearningService) GetNode(ctx context.Context, nodeID, userID, requestID string) (*NodeView, error)
@@ -104,14 +117,17 @@ func (s *LearningService) CalculateProgress(ctx context.Context, userID, treeID 
 ```
 
 #### 3. **content/** - Exercise Management
+
 **Responsibility**: CRUD operations for exercises, AI-powered exercise generation
 
 **Files**:
+
 - `service.go` - Exercise retrieval and generation
 - `adapters.go` - Gemini service adapter for AI generation
 - `models.go` - Domain types (`ExerciseView`, `ExerciseGenerationResult`)
 
 **Key Methods**:
+
 ```go
 func (s *ContentService) GetExercise(ctx context.Context, exerciseID, userID, requestID string) (*ExerciseView, error)
 func (s *ContentService) GenerateExercise(ctx context.Context, req GenerateExerciseRequest, requestID string) (*ExerciseGenerationResult, error)
@@ -194,12 +210,14 @@ func (s *GradingService) SubmitCode(ctx context.Context, req SubmitCodeRequest, 
 ### Domain Tests Are Fast & Isolated
 
 Domain services can be tested **without**:
+
 - ❌ Starting an HTTP server
 - ❌ Connecting to a real database
 - ❌ Running Docker containers
 - ❌ Calling external AI APIs
 
 **Example test pattern:**
+
 ```go
 // domain/grading/service_test.go
 func TestSubmitCode_Success(t *testing.T) {
@@ -219,7 +237,7 @@ func TestSubmitCode_Success(t *testing.T) {
         }, nil)
 
     mockExecutor.On("ExecuteCodeWithContext", mock.Anything, mock.Anything, "javascript").
-        Return(executor.ExecutionResult{Success: true, Output: "All tests passed"})
+        Return(executor.ExecutionResult{true, Output: "All tests passed"})
 
     // ... more mock setup ...
 
@@ -257,6 +275,7 @@ func TestSubmitCode_Success(t *testing.T) {
 ### Example: Adding a "Get Submission History" Feature
 
 #### Step 1: Add Domain Method
+
 ```go
 // domain/grading/service.go
 func (s *GradingService) GetSubmissionHistory(ctx context.Context, exerciseID, userID string, limit int) ([]*SubmissionSummary, error) {
@@ -282,6 +301,7 @@ func (s *GradingService) GetSubmissionHistory(ctx context.Context, exerciseID, u
 ```
 
 #### Step 2: Add API Handler
+
 ```go
 // api/grading/handlers.go
 func (h *SubmissionHandler) GetSubmissionHistory(c echo.Context) error {
@@ -303,12 +323,14 @@ func (h *SubmissionHandler) GetSubmissionHistory(c echo.Context) error {
 ```
 
 #### Step 3: Register Route
+
 ```go
 // main.go
 api.GET("/exercise/:exerciseId/submissions", submissionHandler.GetSubmissionHistory)
 ```
 
 #### Step 4: Write Tests
+
 ```go
 // domain/grading/service_test.go
 func TestGetSubmissionHistory_Success(t *testing.T) {
@@ -370,12 +392,14 @@ Total: 134 test cases, ~5,200 LOC of test code
 ## 🏗️ Architecture Benefits
 
 ### Before Refactoring
+
 - 🔴 **1,719 LOC monolithic handlers file** (`handlers/handlers.go`)
 - 🔴 HTTP, business logic, and data access mixed together
 - 🔴 Hard to test (required HTTP mocks and database setup)
 - 🔴 Tight coupling to Echo framework
 
 ### After Refactoring
+
 - ✅ **Domain layer: 1,200+ LOC** of pure, testable business logic
 - ✅ **API layer: 560+ LOC** of thin HTTP adapters
 - ✅ Clear separation of concerns
@@ -386,15 +410,18 @@ Total: 134 test cases, ~5,200 LOC of test code
 ## 🎓 Further Reading
 
 **Clean Architecture Concepts**:
+
 - [The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html) - Uncle Bob Martin
 - [Domain-Driven Design](https://martinfowler.com/bliki/DomainDrivenDesign.html) - Martin Fowler
 - [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) - Alistair Cockburn
 
 **Go-Specific Resources**:
+
 - [Standard Go Project Layout](https://github.com/golang-standards/project-layout)
 - [Go Best Practices](https://go.dev/doc/effective_go)
 
 **Testing**:
+
 - [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
 - [testify/mock Documentation](https://pkg.go.dev/github.com/stretchr/testify/mock)
 

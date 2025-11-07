@@ -32,7 +32,6 @@ type CodeExecutionService struct {
 
 // ExecutionResult represents the result of code execution
 type ExecutionResult struct {
-	Success       bool   `json:"success"`
 	Output        string `json:"output"`
 	Error         string `json:"error"`
 	ExecutionTime string `json:"executionTime"`
@@ -127,7 +126,6 @@ func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code,
 	requestID := logger.GetRequestID(ctx)
 	if strings.TrimSpace(code) == "" {
 		return ExecutionResult{
-			Success:       false,
 			Error:         "No code provided",
 			ExecutionTime: "error",
 		}
@@ -139,7 +137,6 @@ func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code,
 	config, exists := s.languageConfigs[language]
 	if !exists {
 		return ExecutionResult{
-			Success:       false,
 			Error:         fmt.Sprintf("Language %s is not supported", language),
 			ExecutionTime: "error",
 		}
@@ -149,7 +146,6 @@ func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code,
 	pool, exists := s.pools[config.Name]
 	if !exists {
 		return ExecutionResult{
-			Success:       false,
 			Error:         fmt.Sprintf("Pool for language %s not initialized", language),
 			ExecutionTime: "error",
 		}
@@ -187,7 +183,6 @@ func (s *CodeExecutionService) ExecuteCodeWithContext(ctx context.Context, code,
 			slog.Duration("timeout", s.queueTimeout),
 		)
 		return ExecutionResult{
-			Success:       false,
 			Error:         "Server is at maximum capacity for this language, please try again in a few seconds",
 			ExecutionTime: "timeout",
 		}
@@ -200,7 +195,6 @@ func (s *CodeExecutionService) executeInPooledContainer(ctx context.Context, cod
 	select {
 	case <-s.shutdownSignal:
 		return ExecutionResult{
-			Success:       false,
 			Error:         "Server is shutting down, please try again later",
 			ExecutionTime: "error",
 		}
@@ -219,7 +213,6 @@ func (s *CodeExecutionService) executeInPooledContainer(ctx context.Context, cod
 	if container == nil {
 		pool.mutex.Unlock()
 		return ExecutionResult{
-			Success:       false,
 			Error:         "Container not available",
 			ExecutionTime: "error",
 		}
@@ -304,7 +297,6 @@ cat > %s && %s %s 2>&1`,
 	// Check for timeout
 	if ctx.Err() == context.DeadlineExceeded {
 		return ExecutionResult{
-			Success:       false,
 			Error:         "Execution timed out",
 			ExecutionTime: "timeout",
 		}
@@ -320,7 +312,6 @@ cat > %s && %s %s 2>&1`,
 		if isRustTest && strings.Contains(errorMsg, "test result:") {
 			// Test runner completed successfully, return output even though exit code != 0
 			return ExecutionResult{
-				Success:       true,
 				Output:        errorMsg,
 				ExecutionTime: fmt.Sprintf("%.2fs", dockerDuration.Seconds()),
 			}
@@ -339,14 +330,12 @@ cat > %s && %s %s 2>&1`,
 		}
 
 		return ExecutionResult{
-			Success:       false,
 			Error:         errorMsg,
 			ExecutionTime: fmt.Sprintf("%.2fs", dockerDuration.Seconds()),
 		}
 	}
 
 	return ExecutionResult{
-		Success:       true,
 		Output:        string(output),
 		ExecutionTime: fmt.Sprintf("%.2fs", dockerDuration.Seconds()),
 	}

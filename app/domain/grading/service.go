@@ -300,7 +300,7 @@ func (s *GradingService) runTestCases(ctx context.Context, submittedCode, langua
 			DurationMs: &duration,
 		}
 
-		if execResult.Success {
+		if execResult.Error == "" {
 			testResult.Status = "passed"
 			results.PassedTests++
 			combinedOutput.WriteString(fmt.Sprintf("✓ %s: PASSED\n", testCase.Name))
@@ -360,7 +360,7 @@ func (s *GradingService) runRustTests(ctx context.Context, submittedCode string,
 	totalExecutionTime := int(time.Since(startTime).Milliseconds())
 
 	// Parse test output
-	if !execResult.Success {
+	if execResult.Error != "" {
 		// Compilation error or runtime panic
 		errorMsg := execResult.Error
 		return results, execResult.Error, &errorMsg, totalExecutionTime
