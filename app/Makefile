@@ -150,12 +150,10 @@ db-seed-force: ## Force reseed (overwrites existing data)
 
 test: db-up ## Run tests with test database
 	@echo "$(GREEN)Running tests...$(NC)"
-	@$(MAKE) test-migrate
 	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v ./...
 
 test-coverage: db-up ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
-	@$(MAKE) test-migrate
 	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "$(GREEN)✓ Coverage report generated: coverage.html$(NC)"

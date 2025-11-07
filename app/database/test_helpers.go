@@ -36,22 +36,29 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		dbURL = "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable"
 	}
 
+	// Get migrations path - try migrations/ first, then ../migrations for subdirectory tests
+	migrationsPath := "file://migrations"
+	if _, err := os.Stat("migrations"); err != nil {
+		// We're in a subdirectory, try parent
+		migrationsPath = "file://../migrations"
+	}
+
 	// Run migrations
 	m, err := migrate.New(
-		"file://../migrations",
+		migrationsPath,
 		dbURL,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create migrate instance: %v", err)
 	}
 
-	// Reset to clean state: first down to version 0, then up
+	// Ensure database is at latest version (idempotent)
 	version, dirty, err := m.Version()
 	if err != nil && err != migrate.ErrNilVersion {
 		t.Fatalf("Failed to get migration version: %v", err)
 	}
 
-	// If migrations exist and database is dirty, force to current version
+	// If database is dirty, force to the current version to clean it up
 	if dirty {
 		t.Logf("Database is in dirty state, forcing version %d", version)
 		if err := m.Force(int(version)); err != nil {
@@ -59,14 +66,7 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		}
 	}
 
-	// Migrate down to clean state (if migrations exist)
-	if err == nil || err == migrate.ErrNilVersion {
-		if downErr := m.Down(); downErr != nil && downErr != migrate.ErrNoChange {
-			t.Logf("Warning: Could not migrate down: %v", downErr)
-		}
-	}
-
-	// Run all migrations (now only schema, no seed data)
+	// Migrate up to latest version (idempotent - does nothing if already at latest)
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
@@ -91,15 +91,20 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		t.Fatalf("Failed to ping test database: %v", err)
 	}
 
+	testDB := &TestDatabase{
+		Pool: pool,
+		URL:  dbURL,
+	}
+
+	// Truncate all tables to ensure clean state
+	testDB.TruncateTables(t)
+
 	// Cleanup when test finishes
 	t.Cleanup(func() {
 		pool.Close()
 	})
 
-	return &TestDatabase{
-		Pool: pool,
-		URL:  dbURL,
-	}
+	return testDB
 }
 
 // TruncateTables removes all data but keeps schema
