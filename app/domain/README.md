@@ -50,12 +50,12 @@ Domain services depend on **interfaces**, not concrete implementations:
 ```go
 // domain/grading/interfaces.go
 type CodeExecutor interface {
-    ExecuteCodeWithContext(ctx context.Context, code, language string) executor.ExecutionResult
+    ExecuteCodeWithContext(ctx context.Context, code, language string) codeexecution.ExecutionResult
 }
 
 // domain/grading/service.go
 type GradingService struct {
-    executor CodeExecutor  // Interface, not *executor.Service
+    executor CodeExecutor  // Interface, not *codeexecution.Service
 }
 ```
 

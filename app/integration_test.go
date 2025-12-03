@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anttihil/code-auto-grader/database"
 	"github.com/anttihil/code-auto-grader/repository"
+	"github.com/anttihil/code-auto-grader/shared/database"
 )
 
 // TestDatabaseIntegration verifies the complete database setup works

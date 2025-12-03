@@ -8,18 +8,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/anttihil/code-auto-grader/api/content"
-	"github.com/anttihil/code-auto-grader/api/grading"
-	"github.com/anttihil/code-auto-grader/api/learning"
-	"github.com/anttihil/code-auto-grader/database"
-	domainContent "github.com/anttihil/code-auto-grader/domain/content"
-	domainGrading "github.com/anttihil/code-auto-grader/domain/grading"
-	domainLearning "github.com/anttihil/code-auto-grader/domain/learning"
+	codeexecution "github.com/anttihil/code-auto-grader/features/code-execution"
+	"github.com/anttihil/code-auto-grader/features/exercises"
+	"github.com/anttihil/code-auto-grader/features/progress"
+	"github.com/anttihil/code-auto-grader/features/submissions"
+	techtrees "github.com/anttihil/code-auto-grader/features/tech-trees"
 	"github.com/anttihil/code-auto-grader/internal/logger"
-	customMiddleware "github.com/anttihil/code-auto-grader/middleware"
 	"github.com/anttihil/code-auto-grader/repository"
-	"github.com/anttihil/code-auto-grader/services"
-	"github.com/anttihil/code-auto-grader/services/executor"
+	"github.com/anttihil/code-auto-grader/shared/database"
+	"github.com/anttihil/code-auto-grader/shared/gemini"
+	customMiddleware "github.com/anttihil/code-auto-grader/shared/middleware"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -71,14 +69,19 @@ func main() {
 	nodeRepo := repository.NewNodeRepo(db.Pool)
 	exerciseRepo := repository.NewExerciseRepo(db.Pool)
 	submissionRepo := repository.NewSubmissionRepo(db.Pool)
-	userProgressRepo := repository.NewUserProgressRepo(db.Pool)
 	// userRepo := repository.NewUserRepo(db.Pool) // Not used yet in dogfooding MVP
 	logger.Logger.Info("repositories initialized successfully")
+
+	// Initialize feature services
+	logger.Logger.Info("initializing feature services")
+	progressRepo := progress.NewRepository(db.Pool)
+	progressService := progress.NewService(progressRepo)
+	logger.Logger.Info("progress service initialized")
 
 	// Initialize services
 	logger.Logger.Info("initializing services")
 
-	codeExecutor, err := executor.NewCodeExecutionService()
+	codeExecutor, err := codeexecution.NewCodeExecutionService()
 	if err != nil {
 		logger.Logger.Error("failed to initialize code execution service",
 			slog.String("error", err.Error()),
@@ -92,32 +95,32 @@ func main() {
 	}()
 	logger.Logger.Info("code execution service initialized successfully")
 
-	geminiService := services.NewGeminiService()
+	geminiService := gemini.NewGeminiService()
 	logger.Logger.Info("gemini service initialized")
 
 	// Create adapters to bridge services to domain interfaces
 	logger.Logger.Info("creating service adapters")
-	executorAdapter := domainGrading.NewExecutorAdapter(codeExecutor)
-	geminiGradingAdapter := domainGrading.NewGeminiAdapter(geminiService)
-	geminiContentAdapter := domainContent.NewGeminiAdapter(geminiService)
+	executorAdapter := submissions.NewExecutorAdapter(codeExecutor)
+	geminiGradingAdapter := submissions.NewGeminiAdapter(geminiService)
+	geminiContentAdapter := exercises.NewGeminiAdapter(geminiService)
 
 	// Create domain services (business logic layer)
 	logger.Logger.Info("initializing domain services")
-	gradingService := domainGrading.NewGradingService(
+	gradingService := submissions.NewGradingService(
 		executorAdapter,
 		geminiGradingAdapter,
 		submissionRepo,
 		exerciseRepo,
-		userProgressRepo,
+		progressService,
 	)
-	learningService := domainLearning.NewLearningService(
+	learningService := techtrees.NewLearningService(
 		techTreeRepo,
 		nodeRepo,
 		exerciseRepo,
-		userProgressRepo,
+		progressService,
 		submissionRepo,
 	)
-	contentService := domainContent.NewContentService(
+	contentService := exercises.NewContentService(
 		geminiContentAdapter,
 		exerciseRepo,
 		submissionRepo,
@@ -126,10 +129,10 @@ func main() {
 
 	// Create API handlers (HTTP adapters)
 	logger.Logger.Info("initializing API handlers")
-	submissionHandler := grading.NewSubmissionHandler(gradingService)
-	techTreeHandler := learning.NewTechTreeHandler(learningService)
-	nodeHandler := learning.NewNodeHandler(learningService)
-	exerciseHandler := content.NewExerciseHandler(contentService)
+	submissionHandler := submissions.NewSubmissionHandler(gradingService)
+	techTreeHandler := techtrees.NewTechTreeHandler(learningService)
+	nodeHandler := techtrees.NewNodeHandler(learningService)
+	exerciseHandler := exercises.NewExerciseHandler(contentService)
 	logger.Logger.Info("API handlers initialized with domain services")
 
 	// Create Echo instance
