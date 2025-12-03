@@ -1,21 +1,24 @@
 version: '3.8'
 
+# Docker Compose for Code Auto-Grader development databases
+# Requires .env file with DB_USER, DB_PASSWORD, DB_NAME, etc.
+# See .env.example for all required variables
+
 services:
   postgres:
     image: postgres:15-alpine
     container_name: code-grader-db
     environment:
-      POSTGRES_USER: code_grader
-      POSTGRES_PASSWORD: dev_password_change_in_production
-      POSTGRES_DB: code_auto_grader
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Mount migrations for easy access
-      - ./app/migrations:/migrations:ro
+      - ./migrations:/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U code_grader"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,15 +28,15 @@ services:
     image: postgres:15-alpine
     container_name: code-grader-db-test
     environment:
-      POSTGRES_USER: code_grader
-      POSTGRES_PASSWORD: test_password
-      POSTGRES_DB: code_auto_grader_test
+      POSTGRES_USER: ${TEST_DB_USER}
+      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD}
+      POSTGRES_DB: ${TEST_DB_NAME}
     ports:
-      - "5433:5432"  # Different port to avoid conflicts
+      - "${TEST_DB_PORT:-5433}:5432"
     tmpfs:
       - /var/lib/postgresql/data  # In-memory for faster tests
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U code_grader"]
+      test: ["CMD-SHELL", "pg_isready -U ${TEST_DB_USER}"]
       interval: 2s
       timeout: 2s
       retries: 3

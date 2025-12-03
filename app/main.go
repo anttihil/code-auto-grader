@@ -15,6 +15,7 @@ import (
 	techtrees "github.com/anttihil/code-auto-grader/features/tech-trees"
 	"github.com/anttihil/code-auto-grader/internal/logger"
 	"github.com/anttihil/code-auto-grader/repository"
+	"github.com/anttihil/code-auto-grader/shared/config"
 	"github.com/anttihil/code-auto-grader/shared/database"
 	"github.com/anttihil/code-auto-grader/shared/gemini"
 	customMiddleware "github.com/anttihil/code-auto-grader/shared/middleware"
@@ -24,33 +25,35 @@ import (
 )
 
 func main() {
-	// Load environment variables
+	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		// Use standard output before logger is initialized
 		slog.Info("No .env file found, using system environment variables")
 	}
 
-	// Initialize logger based on environment
-	env := os.Getenv("ENVIRONMENT")
-	if env == "" {
-		env = "development"
+	// Load and validate configuration (single source of truth)
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("configuration error", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-	logger.Initialize(env)
+
+	// Initialize logger based on environment
+	logger.Initialize(cfg.Environment)
 
 	logger.Logger.Info("application starting",
-		slog.String("environment", env),
+		slog.String("environment", cfg.Environment),
+		slog.String("port", cfg.Port),
 	)
-
-	// Get port from environment or use default
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "5000"
-	}
 
 	// Initialize database
 	logger.Logger.Info("initializing database connection")
 	ctx := context.Background()
-	db, err := database.NewFromEnv(ctx)
+	dbConfig := database.DefaultConfig()
+	dbConfig.URL = cfg.DatabaseURL
+	dbConfig.AutoMigrate = cfg.DBAutoMigrate
+	dbConfig.MigrationsPath = cfg.DBMigrationsPath
+	db, err := database.New(ctx, dbConfig)
 	if err != nil {
 		logger.Logger.Error("failed to initialize database",
 			slog.String("error", err.Error()),
@@ -81,7 +84,7 @@ func main() {
 	// Initialize services
 	logger.Logger.Info("initializing services")
 
-	codeExecutor, err := codeexecution.NewCodeExecutionService()
+	codeExecutor, err := codeexecution.NewCodeExecutionServiceWithConfig(cfg)
 	if err != nil {
 		logger.Logger.Error("failed to initialize code execution service",
 			slog.String("error", err.Error()),
@@ -95,7 +98,7 @@ func main() {
 	}()
 	logger.Logger.Info("code execution service initialized successfully")
 
-	geminiService := gemini.NewGeminiService()
+	geminiService := gemini.NewGeminiServiceWithConfig(cfg)
 	logger.Logger.Info("gemini service initialized")
 
 	// Create adapters to bridge services to domain interfaces
@@ -139,7 +142,7 @@ func main() {
 	e := echo.New()
 
 	// Middleware (order matters!)
-	e.Use(customMiddleware.RequestID())                  // Generate request ID first
+	e.Use(customMiddleware.RequestID())                     // Generate request ID first
 	e.Use(customMiddleware.StructuredLogger(logger.Logger)) // Log with request ID
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
@@ -173,8 +176,8 @@ func main() {
 
 	// Start server
 	logger.Logger.Info("application ready",
-		slog.String("port", port),
-		slog.String("address", "http://localhost:"+port),
+		slog.String("port", cfg.Port),
+		slog.String("address", "http://localhost:"+cfg.Port),
 	)
-	e.Logger.Fatal(e.Start(":" + port))
+	e.Logger.Fatal(e.Start(":" + cfg.Port))
 }

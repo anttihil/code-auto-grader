@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/anttihil/code-auto-grader/internal/logger"
+	"github.com/anttihil/code-auto-grader/shared/config"
 )
 
 // CodeExecutionService handles secure code execution in Docker containers
@@ -90,6 +91,69 @@ func NewCodeExecutionService() (*CodeExecutionService, error) {
 		logger.Logger.Info("container pool configured",
 			slog.String("language", config.Name),
 			slog.Int("pool_size", config.PoolSize),
+		)
+	}
+
+	// Initialize Docker images
+	if err := service.initializeDocker(); err != nil {
+		return nil, fmt.Errorf("failed to initialize Docker environment: %w", err)
+	}
+
+	// Mark images as verified after successful initialization
+	service.imagesVerified = true
+
+	// Create and initialize container pools
+	logger.Logger.Info("initializing container pools",
+		slog.Int("pool_count", len(service.languageConfigs)),
+	)
+	if err := service.initializePools(); err != nil {
+		return nil, err
+	}
+
+	logger.Logger.Info("all container pools initialized successfully")
+
+	// Start background maintenance goroutines
+	go service.containerRotationScheduler()
+	logger.Logger.Info("container rotation scheduler started")
+
+	go service.containerHealthMonitor()
+	logger.Logger.Info("container health monitor started")
+
+	return service, nil
+}
+
+// NewCodeExecutionServiceWithConfig creates a new code execution service using centralized config.
+// This is the preferred constructor when using the shared/config package.
+func NewCodeExecutionServiceWithConfig(cfg *config.Config) (*CodeExecutionService, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "/tmp"
+	}
+
+	service := &CodeExecutionService{
+		tempDir:         filepath.Join(homeDir, ".code-grader", "executions"),
+		queueTimeout:    cfg.ExecutionQueueTimeout,
+		maxConcurrent:   cfg.MaxConcurrentExecutions,
+		executionSem:    make(chan struct{}, cfg.MaxConcurrentExecutions),
+		imagesVerified:  false,
+		languageConfigs: make(map[string]*LanguageConfig),
+		pools:           make(map[string]*ContainerPool),
+		shutdownSignal:  make(chan struct{}),
+	}
+
+	// Initialize language configurations with pool sizes from config
+	service.initializeLanguageConfigsWithConfig(cfg)
+
+	logger.Logger.Info("code execution service configured",
+		slog.Int("max_concurrent", cfg.MaxConcurrentExecutions),
+		slog.Duration("queue_timeout", cfg.ExecutionQueueTimeout),
+	)
+
+	// Log pool sizes
+	for _, langConfig := range service.languageConfigs {
+		logger.Logger.Info("container pool configured",
+			slog.String("language", langConfig.Name),
+			slog.Int("pool_size", langConfig.PoolSize),
 		)
 	}
 

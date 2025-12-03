@@ -224,8 +224,9 @@ type PoolStats struct {
 	MaxIdleDestroyCount     int64
 }
 
-// NewFromEnv creates a database connection using environment variables
-// It reads DATABASE_URL and applies default configuration
+// NewFromEnv creates a database connection using environment variables.
+// Deprecated: Use New() with config from shared/config package instead.
+// This function is kept for backward compatibility.
 func NewFromEnv(ctx context.Context) (*Database, error) {
 	cfg := DefaultConfig()
 	cfg.URL = os.Getenv("DATABASE_URL")

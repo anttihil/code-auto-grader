@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anttihil/code-auto-grader/internal/logger"
+	"github.com/anttihil/code-auto-grader/shared/config"
 	"google.golang.org/genai"
 )
 
@@ -59,6 +60,39 @@ func NewGeminiService() *GeminiService {
 		APIKey: apiKey,
 	}
 	client, err := genai.NewClient(ctx, config)
+	if err != nil {
+		logger.Logger.Error("failed to create Gemini client",
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+
+	models := client.Models
+
+	logger.Logger.Info("Gemini service client created successfully")
+	return &GeminiService{
+		client: client,
+		models: models,
+	}
+}
+
+// NewGeminiServiceWithConfig creates a new Gemini AI service using centralized config.
+// This is the preferred constructor when using the shared/config package.
+func NewGeminiServiceWithConfig(cfg *config.Config) *GeminiService {
+	if cfg.GeminiAPIKey == "" {
+		logger.Logger.Warn("GEMINI_API_KEY not configured")
+		return nil
+	}
+
+	logger.Logger.Info("initializing Gemini service",
+		slog.Int("api_key_length", len(cfg.GeminiAPIKey)),
+	)
+
+	ctx := context.Background()
+	clientConfig := &genai.ClientConfig{
+		APIKey: cfg.GeminiAPIKey,
+	}
+	client, err := genai.NewClient(ctx, clientConfig)
 	if err != nil {
 		logger.Logger.Error("failed to create Gemini client",
 			slog.String("error", err.Error()),

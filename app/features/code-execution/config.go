@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/anttihil/code-auto-grader/shared/config"
 )
 
 const (
@@ -103,6 +105,70 @@ func (s *CodeExecutionService) initializeLanguageConfigs() {
 		PoolSize:          rustPoolSize,
 	}
 	// Alias for "rs"
+	s.languageConfigs["rs"] = s.languageConfigs["rust"]
+}
+
+// initializeLanguageConfigsWithConfig sets up language configurations using centralized config.
+// This is the preferred method when using the shared/config package.
+func (s *CodeExecutionService) initializeLanguageConfigsWithConfig(cfg *config.Config) {
+	// JavaScript configuration
+	s.languageConfigs["javascript"] = &LanguageConfig{
+		Name:              "javascript",
+		FileExtension:     ".js",
+		DockerImage:       "code-grader-javascript",
+		DockerfilePath:    filepath.Join("docker", "javascript.Dockerfile"),
+		ImageBuildTimeout: 120 * time.Second,
+		ExecutionTimeout:  10 * time.Second,
+		MemoryMB:          128,
+		CPUs:              "0.5",
+		TmpfsSize:         "8m",
+		PIDsLimit:         50,
+		Interpreter:       "node",
+		RequiresCompile:   false,
+		Compiler:          "",
+		HealthCheckCmd:    []string{"node", "-e", "console.log('ok')"},
+		PoolSize:          cfg.JSPoolSize,
+	}
+	s.languageConfigs["js"] = s.languageConfigs["javascript"]
+
+	// Python configuration
+	s.languageConfigs["python"] = &LanguageConfig{
+		Name:              "python",
+		FileExtension:     ".py",
+		DockerImage:       "code-grader-python",
+		DockerfilePath:    filepath.Join("docker", "python.Dockerfile"),
+		ImageBuildTimeout: 120 * time.Second,
+		ExecutionTimeout:  10 * time.Second,
+		MemoryMB:          128,
+		CPUs:              "0.5",
+		TmpfsSize:         "8m",
+		PIDsLimit:         50,
+		Interpreter:       "python3 -u",
+		RequiresCompile:   false,
+		Compiler:          "",
+		HealthCheckCmd:    []string{"python3", "-c", "print('ok')"},
+		PoolSize:          cfg.PythonPoolSize,
+	}
+	s.languageConfigs["py"] = s.languageConfigs["python"]
+
+	// Rust configuration
+	s.languageConfigs["rust"] = &LanguageConfig{
+		Name:              "rust",
+		FileExtension:     ".rs",
+		DockerImage:       "code-grader-rust",
+		DockerfilePath:    filepath.Join("docker", "rust.Dockerfile"),
+		ImageBuildTimeout: 300 * time.Second,
+		ExecutionTimeout:  30 * time.Second,
+		MemoryMB:          512,
+		CPUs:              "1.0",
+		TmpfsSize:         "64m",
+		PIDsLimit:         100,
+		Interpreter:       "",
+		RequiresCompile:   true,
+		Compiler:          "rustc",
+		HealthCheckCmd:    []string{"rustc", "--version"},
+		PoolSize:          cfg.RustPoolSize,
+	}
 	s.languageConfigs["rs"] = s.languageConfigs["rust"]
 }
 

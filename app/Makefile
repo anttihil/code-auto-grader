@@ -3,18 +3,46 @@
 
 .PHONY: help dev dev-watch db-up db-down db-reset db-dump db-restore migrate-up migrate-down migrate-create db-shell db-seed db-seed-users db-seed-exercises db-seed-force test test-coverage clean install-tools
 
+# =============================================================================
+# Configuration from .env (single source of truth)
+# =============================================================================
+# Load .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
+# Construct database URLs from atomic parts (with defaults for backward compatibility)
+DB_USER ?= code_grader
+DB_PASSWORD ?= dev_password_change_in_production
+DB_HOST ?= localhost
+DB_PORT ?= 5432
+DB_NAME ?= code_auto_grader
+DB_SSLMODE ?= disable
+
+TEST_DB_USER ?= code_grader
+TEST_DB_PASSWORD ?= test_password
+TEST_DB_HOST ?= localhost
+TEST_DB_PORT ?= 5433
+TEST_DB_NAME ?= code_auto_grader_test
+
+DATABASE_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(DB_SSLMODE)
+TEST_DATABASE_URL ?= postgres://$(TEST_DB_USER):$(TEST_DB_PASSWORD)@$(TEST_DB_HOST):$(TEST_DB_PORT)/$(TEST_DB_NAME)?sslmode=$(DB_SSLMODE)
+
+# =============================================================================
+# Other Configuration
+# =============================================================================
+MIGRATE_VERSION ?= v4.17.0
+
 # Colors for output
 GREEN  := \033[0;32m
 YELLOW := \033[0;33m
 NC     := \033[0m # No Color
 
-# Configuration
-MIGRATE_VERSION ?= v4.17.0
-
 help: ## Show this help message
 	@echo "$(GREEN)Code Auto-Grader - Available Commands$(NC)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  $(YELLOW)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 
 # Development Commands
@@ -62,10 +90,10 @@ db-reset: ## Reset database (WARNING: deletes all data)
 	@echo "$(GREEN)Database reset complete!$(NC)"
 
 db-shell: ## Open psql shell to development database
-	@docker compose exec postgres psql -U code_grader -d code_auto_grader
+	@docker compose exec postgres psql -U $(DB_USER) -d $(DB_NAME)
 
 db-shell-test: ## Open psql shell to test database
-	@docker compose exec postgres_test psql -U code_grader -d code_auto_grader_test
+	@docker compose exec postgres_test psql -U $(TEST_DB_USER) -d $(TEST_DB_NAME)
 
 db-dump: ## Dump database to file (Usage: make db-dump FILE=backup.sql)
 	@if [ -z "$(FILE)" ]; then \
@@ -74,7 +102,7 @@ db-dump: ## Dump database to file (Usage: make db-dump FILE=backup.sql)
 		FILE="$(FILE)"; \
 	fi; \
 	echo "$(GREEN)Dumping database to $$FILE...$(NC)"; \
-	docker compose exec -T postgres pg_dump -U code_grader code_auto_grader > $$FILE; \
+	docker compose exec -T postgres pg_dump -U $(DB_USER) $(DB_NAME) > $$FILE; \
 	echo "$(GREEN)✓ Database dumped to $$FILE$(NC)"
 
 db-restore: ## Restore database from file (Usage: make db-restore FILE=backup.sql)
@@ -83,7 +111,7 @@ db-restore: ## Restore database from file (Usage: make db-restore FILE=backup.sq
 		exit 1; \
 	fi
 	@echo "$(GREEN)Restoring database from $(FILE)...$(NC)"
-	@docker compose exec -T postgres psql -U code_grader code_auto_grader < $(FILE)
+	@docker compose exec -T postgres psql -U $(DB_USER) $(DB_NAME) < $(FILE)
 	@echo "$(GREEN)✓ Database restored from $(FILE)$(NC)"
 
 # Migration Commands (using golang-migrate)
@@ -97,15 +125,15 @@ install-tools: ## Install development tools (migrate, air)
 
 migrate-up: ## Run all pending migrations
 	@echo "$(GREEN)Running migrations...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations up
+	@migrate -database "$(DATABASE_URL)" -path ./migrations up
 	@echo "$(GREEN)Migrations complete!$(NC)"
 
 migrate-down: ## Rollback last migration
 	@echo "$(YELLOW)Rolling back last migration...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations down 1
+	@migrate -database "$(DATABASE_URL)" -path ./migrations down 1
 
 migrate-version: ## Show current migration version
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations version
+	@migrate -database "$(DATABASE_URL)" -path ./migrations version
 
 migrate-force: ## Force migration version (use when dirty) - Usage: make migrate-force VERSION=1
 	@if [ -z "$(VERSION)" ]; then \
@@ -114,7 +142,7 @@ migrate-force: ## Force migration version (use when dirty) - Usage: make migrate
 		exit 1; \
 	fi
 	@echo "$(YELLOW)Forcing migration version to $(VERSION)...$(NC)"
-	@migrate -database "postgres://code_grader:dev_password_change_in_production@localhost:5432/code_auto_grader?sslmode=disable" -path ./migrations force $(VERSION)
+	@migrate -database "$(DATABASE_URL)" -path ./migrations force $(VERSION)
 
 migrate-create: ## Create new migration - Usage: make migrate-create NAME=add_user_avatar
 	@if [ -z "$(NAME)" ]; then \
@@ -150,17 +178,17 @@ db-seed-force: ## Force reseed (overwrites existing data)
 
 test: db-up ## Run tests with test database
 	@echo "$(GREEN)Running tests...$(NC)"
-	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v ./...
+	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v ./...
 
 test-coverage: db-up ## Run tests with coverage report
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
-	@TEST_DATABASE_URL="postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" go test -v -coverprofile=coverage.out ./...
+	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "$(GREEN)✓ Coverage report generated: coverage.html$(NC)"
 
 test-migrate: ## Run migrations on test database
 	@echo "$(GREEN)Migrating test database...$(NC)"
-	@migrate -database "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable" -path ./migrations up
+	@migrate -database "$(TEST_DATABASE_URL)" -path ./migrations up
 
 # Build Commands
 
