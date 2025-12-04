@@ -337,7 +337,7 @@ func (s *GradingService) runRustTests(ctx context.Context, submittedCode string,
 	// Build complete Rust test file
 	var codeBuilder strings.Builder
 	codeBuilder.WriteString(submittedCode)
-	codeBuilder.WriteString("\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n")
+	codeBuilder.WriteString("\n\n#[cfg(test)]\nmod tests {\n    #[allow(unused_imports)]\n    use super::*;\n\n")
 
 	// Add all test cases
 	for _, testCase := range testCases {
