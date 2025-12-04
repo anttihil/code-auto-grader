@@ -20,6 +20,7 @@ type TestDatabase struct {
 
 // SetupTestDB creates a fresh test database with migrations
 // Call this in your test setup to get a clean database state
+// Skips the test if the database is not available.
 //
 // Example:
 //
@@ -36,6 +37,19 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		dbURL = "postgres://code_grader:test_password@localhost:5433/code_auto_grader_test?sslmode=disable"
 	}
 
+	// Try to connect to the database first to check if it's available
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("Skipping test: test database not available: %v", err)
+	}
+
+	// Verify connection with a ping
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
+		t.Skipf("Skipping test: cannot connect to test database: %v", err)
+	}
+	pool.Close() // Close this preliminary connection
+
 	// Get migrations path - try migrations/ first, then ../../migrations for shared/database tests
 	migrationsPath := "file://migrations"
 	if _, err := os.Stat("migrations"); err != nil {
@@ -49,7 +63,7 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		dbURL,
 	)
 	if err != nil {
-		t.Fatalf("Failed to create migrate instance: %v", err)
+		t.Skipf("Skipping test: failed to create migrate instance: %v", err)
 	}
 
 	// Ensure database is at latest version (idempotent)
@@ -80,8 +94,8 @@ func SetupTestDB(t *testing.T) *TestDatabase {
 		t.Logf("Warning: Error closing migration database: %v", dbErr)
 	}
 
-	// Create connection pool
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	// Create connection pool (reusing pool variable from earlier check)
+	pool, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		t.Fatalf("Failed to connect to test database: %v", err)
 	}

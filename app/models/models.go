@@ -257,11 +257,27 @@ type UserProgress struct {
 	MasteryScore       *float64   `db:"mastery_score" json:"mastery_score,omitempty"`
 	MasteryThreshold   float64    `db:"mastery_threshold" json:"mastery_threshold"`
 	IsMastered         bool       `db:"is_mastered" json:"is_mastered"`
+	AIHelpCount        int        `db:"ai_help_count" json:"ai_help_count"`
 	StartedAt          *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt        *time.Time `db:"completed_at" json:"completed_at,omitempty"`
 	LastActivityAt     *time.Time `db:"last_activity_at" json:"last_activity_at,omitempty"`
 	CreatedAt          time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt          time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+// ============================================
+// Learning Material Models
+// ============================================
+
+// LearningMaterial represents educational content for a tech tree node
+type LearningMaterial struct {
+	ID         uuid.UUID `db:"id" json:"id"`
+	NodeID     uuid.UUID `db:"node_id" json:"node_id"`
+	Title      string    `db:"title" json:"title"`
+	Content    string    `db:"content" json:"content"`
+	OrderIndex int       `db:"order_index" json:"order_index"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // ============================================

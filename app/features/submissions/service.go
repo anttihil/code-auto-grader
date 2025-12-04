@@ -126,34 +126,48 @@ func (s *GradingService) SubmitCode(ctx context.Context, req SubmitCodeRequest, 
 		slog.Int("test_score", testScore),
 	)
 
-	// 4. Get AI feedback using exercise's AI evaluation prompt
-	startAI := time.Now()
-	aiFeedback, aiScore, err := s.evaluateWithAI(ctx, exercise, req.Code, req.Language, testResults, requestID)
-	if err != nil {
-		logger.Logger.Warn("AI evaluation failed, continuing without it",
-			slog.String("request_id", requestID),
-			slog.String("error", err.Error()),
-		)
-		// Continue without AI feedback rather than failing the whole submission
-		aiFeedback = &models.AIFeedback{
-			Passed:       false,
-			Score:        0,
-			Feedback:     "AI evaluation temporarily unavailable",
-			Strengths:    []string{},
-			Improvements: []string{},
-			Correctness:  "",
-			CodeQuality:  "",
-			Suggestions:  "",
-		}
-		aiScore = 0
-	}
-	aiEvaluationTimeMs := int(time.Since(startAI).Milliseconds())
+	// 4. Get AI feedback (conditional based on exercise configuration)
+	var aiFeedback *models.AIFeedback
+	var aiScore int
+	var aiEvaluationTimeMs int
 
-	logger.Logger.Info("AI evaluation completed",
-		slog.String("request_id", requestID),
-		slog.Int("ai_score", aiScore),
-		slog.Int("duration_ms", aiEvaluationTimeMs),
-	)
+	if s.shouldRequestAIFeedback(exercise) {
+		startAI := time.Now()
+		aiFeedback, aiScore, err = s.evaluateWithAI(ctx, exercise, req.Code, req.Language, testResults, requestID)
+		if err != nil {
+			logger.Logger.Warn("AI evaluation failed, continuing without it",
+				slog.String("request_id", requestID),
+				slog.String("error", err.Error()),
+			)
+			// Continue without AI feedback rather than failing the whole submission
+			aiFeedback = &models.AIFeedback{
+				Passed:       false,
+				Score:        0,
+				Feedback:     "AI evaluation temporarily unavailable",
+				Strengths:    []string{},
+				Improvements: []string{},
+				Correctness:  "",
+				CodeQuality:  "",
+				Suggestions:  "",
+			}
+			aiScore = 0
+		}
+		aiEvaluationTimeMs = int(time.Since(startAI).Milliseconds())
+
+		logger.Logger.Info("AI evaluation completed",
+			slog.String("request_id", requestID),
+			slog.Int("ai_score", aiScore),
+			slog.Int("duration_ms", aiEvaluationTimeMs),
+		)
+	} else {
+		logger.Logger.Info("AI evaluation skipped (weight=0 or no prompt configured)",
+			slog.String("request_id", requestID),
+			slog.Int("ai_weight", exercise.Content.GradingRubric.AIWeight),
+		)
+		// No AI feedback needed - score based purely on tests
+		aiScore = 0
+		aiEvaluationTimeMs = 0
+	}
 
 	// 5. Calculate total score using grading rubric weights
 	totalScore := CalculateScore(testScore, aiScore, exercise.Content.GradingRubric)
@@ -261,6 +275,24 @@ func (s *GradingService) GetPoolStatus() map[string]interface{} {
 // ============================================
 // Helper Methods
 // ============================================
+
+// shouldRequestAIFeedback determines if AI evaluation should be performed based on exercise configuration.
+// Returns false when AI weight is 0, allowing exercises to skip AI evaluation entirely.
+func (s *GradingService) shouldRequestAIFeedback(exercise *models.Exercise) bool {
+	rubric := exercise.Content.GradingRubric
+
+	// Skip AI if weight is explicitly set to 0
+	if rubric.AIWeight == 0 {
+		return false
+	}
+
+	// Skip AI if there's no AI evaluation prompt configured
+	if exercise.Content.AIEvaluationPrompt == "" && len(rubric.AICriteria) == 0 {
+		return false
+	}
+
+	return true
+}
 
 // runTestCases executes all test cases and returns results
 func (s *GradingService) runTestCases(ctx context.Context, submittedCode, language string, testCases []models.TestCase, requestID string) (*models.TestResults, string, *string, int) {

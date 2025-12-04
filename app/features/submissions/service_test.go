@@ -791,3 +791,253 @@ func TestRunCode_ExecutionError(t *testing.T) {
 	mockExerciseRepo.AssertExpectations(t)
 	mockExecutor.AssertExpectations(t)
 }
+
+// ============================================================================
+// Conditional AI Evaluation Tests (shouldRequestAIFeedback)
+// ============================================================================
+
+// createTestExerciseWithAIConfig creates an exercise with configurable AI settings
+func createTestExerciseWithAIConfig(aiWeight int, aiPrompt string, criteria []models.AICriterion) *models.Exercise {
+	nodeID := uuid.New()
+	exerciseID := uuid.New()
+
+	return &models.Exercise{
+		ID:          exerciseID,
+		NodeID:      nodeID,
+		Title:       "Conditional AI Test Exercise",
+		Description: "Exercise for testing conditional AI evaluation",
+		Difficulty:  "easy",
+		Content: models.ExerciseContent{
+			StarterCode: "function add(a, b) {\n  // TODO: implement\n  return 0;\n}",
+			TestCases: []models.TestCase{
+				{Name: "Test 1+1", Code: "assert.strictEqual(add(1, 1), 2);", Visible: true},
+			},
+			GradingRubric: models.GradingRubric{
+				TestWeight: 100 - aiWeight,
+				AIWeight:   aiWeight,
+				AICriteria: criteria,
+			},
+			AIEvaluationPrompt: aiPrompt,
+		},
+	}
+}
+
+func TestShouldRequestAIFeedback(t *testing.T) {
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockProgressRepository)
+	progressService := progress.NewService(mockProgressRepo)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+
+	t.Run("returns false when AI weight is 0", func(t *testing.T) {
+		exercise := createTestExerciseWithAIConfig(
+			0,                                       // aiWeight = 0
+			"Evaluate this code",                    // has prompt
+			[]models.AICriterion{{Name: "Quality"}}, // has criteria
+		)
+
+		result := service.shouldRequestAIFeedback(exercise)
+
+		assert.False(t, result, "should skip AI when weight is 0 even with prompt and criteria")
+	})
+
+	t.Run("returns false when no prompt and no criteria", func(t *testing.T) {
+		exercise := createTestExerciseWithAIConfig(
+			40,                    // aiWeight > 0
+			"",                    // no prompt
+			[]models.AICriterion{}, // no criteria
+		)
+
+		result := service.shouldRequestAIFeedback(exercise)
+
+		assert.False(t, result, "should skip AI when no prompt and no criteria configured")
+	})
+
+	t.Run("returns true when has prompt only", func(t *testing.T) {
+		exercise := createTestExerciseWithAIConfig(
+			40,                    // aiWeight > 0
+			"Evaluate this code", // has prompt
+			[]models.AICriterion{}, // no criteria
+		)
+
+		result := service.shouldRequestAIFeedback(exercise)
+
+		assert.True(t, result, "should request AI when prompt is configured")
+	})
+
+	t.Run("returns true when has criteria only", func(t *testing.T) {
+		exercise := createTestExerciseWithAIConfig(
+			40, // aiWeight > 0
+			"", // no prompt
+			[]models.AICriterion{
+				{Name: "Correctness", Points: 50, Description: "Code correctness"},
+				{Name: "Style", Points: 50, Description: "Code style"},
+			},
+		)
+
+		result := service.shouldRequestAIFeedback(exercise)
+
+		assert.True(t, result, "should request AI when criteria are configured")
+	})
+
+	t.Run("returns true when has both prompt and criteria", func(t *testing.T) {
+		exercise := createTestExerciseWithAIConfig(
+			40,                   // aiWeight > 0
+			"Evaluate this code", // has prompt
+			[]models.AICriterion{
+				{Name: "Correctness", Points: 50, Description: "Code correctness"},
+			},
+		)
+
+		result := service.shouldRequestAIFeedback(exercise)
+
+		assert.True(t, result, "should request AI when both prompt and criteria are configured")
+	})
+}
+
+// TestSubmitCode_SkipsAIWhenWeightIsZero verifies the integration:
+// when AI weight is 0, the AI evaluator should NOT be called
+func TestSubmitCode_SkipsAIWhenWeightIsZero(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockProgressRepository)
+	progressService := progress.NewService(mockProgressRepo)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+
+	ctx := context.Background()
+	userID := "00000000-0000-0000-0000-000000000001"
+
+	// Create exercise with AI weight = 0 (100% test-based scoring)
+	exercise := createTestExerciseWithAIConfig(
+		0,                     // aiWeight = 0
+		"This should be ignored", // prompt won't be used
+		[]models.AICriterion{},
+	)
+	exerciseID := exercise.ID.String()
+	code := "function add(a, b) { return a + b; }"
+
+	// Mock exercise repository
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(exercise, nil)
+
+	// Mock code execution - tests pass
+	execResult := &codeexecution.ExecutionResult{
+		Output: "2",
+		Error:  "",
+	}
+	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
+
+	// DO NOT set up mockEvaluator expectations - it should NOT be called
+
+	// Mock submission count
+	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
+
+	// Mock submission creation
+	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
+
+	// Mock progress repository
+	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(nil, nil)
+	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
+
+	// Execute
+	req := SubmitCodeRequest{
+		UserID:     userID,
+		ExerciseID: exerciseID,
+		Code:       code,
+		Language:   "javascript",
+	}
+
+	result, err := service.SubmitCode(ctx, req, "test-request-id")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, 0, result.AIScore, "AI score should be 0 when AI is skipped")
+	assert.Nil(t, result.AIFeedback, "AI feedback should be nil when AI is skipped")
+	assert.Equal(t, 100, result.TotalScore, "score should be 100% based on tests (100% passed, 100% weight)")
+
+	// Verify AI evaluator was NOT called
+	mockEvaluator.AssertNotCalled(t, "CheckSubmissionWithContext")
+
+	// Verify other mocks
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+	mockSubmissionRepo.AssertExpectations(t)
+	mockProgressRepo.AssertExpectations(t)
+}
+
+// TestSubmitCode_SkipsAIWhenNoCriteriaOrPrompt verifies that AI is skipped
+// when there's no evaluation prompt and no criteria, even with non-zero weight
+func TestSubmitCode_SkipsAIWhenNoCriteriaOrPrompt(t *testing.T) {
+	// Setup mocks
+	mockExecutor := new(mockCodeExecutor)
+	mockEvaluator := new(mockAIEvaluator)
+	mockSubmissionRepo := new(mockSubmissionRepository)
+	mockExerciseRepo := new(mockExerciseRepository)
+	mockProgressRepo := new(mockProgressRepository)
+	progressService := progress.NewService(mockProgressRepo)
+
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+
+	ctx := context.Background()
+	userID := "00000000-0000-0000-0000-000000000001"
+
+	// Create exercise with AI weight > 0 but no prompt or criteria
+	exercise := createTestExerciseWithAIConfig(
+		40,                    // aiWeight > 0
+		"",                    // no prompt
+		[]models.AICriterion{}, // no criteria
+	)
+	exerciseID := exercise.ID.String()
+	code := "function add(a, b) { return a + b; }"
+
+	// Mock exercise repository
+	mockExerciseRepo.On("GetByID", ctx, exerciseID).Return(exercise, nil)
+
+	// Mock code execution - tests pass
+	execResult := &codeexecution.ExecutionResult{
+		Output: "2",
+		Error:  "",
+	}
+	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
+
+	// Mock submission count
+	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
+
+	// Mock submission creation
+	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
+
+	// Mock progress repository
+	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(nil, nil)
+	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
+
+	// Execute
+	req := SubmitCodeRequest{
+		UserID:     userID,
+		ExerciseID: exerciseID,
+		Code:       code,
+		Language:   "javascript",
+	}
+
+	result, err := service.SubmitCode(ctx, req, "test-request-id")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, 0, result.AIScore, "AI score should be 0 when AI is skipped")
+	assert.Nil(t, result.AIFeedback, "AI feedback should be nil when AI is skipped")
+
+	// Verify AI evaluator was NOT called
+	mockEvaluator.AssertNotCalled(t, "CheckSubmissionWithContext")
+
+	// Verify other mocks
+	mockExerciseRepo.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+	mockSubmissionRepo.AssertExpectations(t)
+}

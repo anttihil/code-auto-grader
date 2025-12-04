@@ -118,3 +118,21 @@ type UserRepository interface {
 	// Update updates an existing user
 	Update(ctx context.Context, user *models.User) error
 }
+
+// LearningMaterialRepository defines operations for learning material data access
+type LearningMaterialRepository interface {
+	// GetByNodeID retrieves all learning materials for a node, ordered by order_index
+	GetByNodeID(ctx context.Context, nodeID string) ([]*models.LearningMaterial, error)
+
+	// GetByID retrieves a learning material by its ID
+	GetByID(ctx context.Context, id string) (*models.LearningMaterial, error)
+
+	// Create creates a new learning material
+	Create(ctx context.Context, material *models.LearningMaterial) error
+
+	// Update updates an existing learning material
+	Update(ctx context.Context, material *models.LearningMaterial) error
+
+	// Delete deletes a learning material by its ID
+	Delete(ctx context.Context, id string) error
+}

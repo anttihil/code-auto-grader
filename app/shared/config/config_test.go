@@ -45,6 +45,9 @@ func TestLoad_WithAtomicParts(t *testing.T) {
 }
 
 func TestLoad_WithDefaultHostAndPort(t *testing.T) {
+	// Clear any existing config first to test true defaults
+	clearDBConfig()
+
 	// Set only required parts, rely on defaults for host/port
 	os.Setenv("DB_USER", "testuser")
 	os.Setenv("DB_PASSWORD", "testpass")
@@ -56,7 +59,8 @@ func TestLoad_WithDefaultHostAndPort(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	expected := "postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable"
+	// Default port is 5442 (configured for local Docker setup)
+	expected := "postgres://testuser:testpass@localhost:5442/testdb?sslmode=disable"
 	if cfg.DatabaseURL != expected {
 		t.Errorf("DatabaseURL = %v, want %v", cfg.DatabaseURL, expected)
 	}

@@ -10,6 +10,7 @@ import (
 
 	codeexecution "github.com/anttihil/code-auto-grader/features/code-execution"
 	"github.com/anttihil/code-auto-grader/features/exercises"
+	learningmaterials "github.com/anttihil/code-auto-grader/features/learning-materials"
 	"github.com/anttihil/code-auto-grader/features/progress"
 	"github.com/anttihil/code-auto-grader/features/submissions"
 	techtrees "github.com/anttihil/code-auto-grader/features/tech-trees"
@@ -72,6 +73,7 @@ func main() {
 	nodeRepo := repository.NewNodeRepo(db.Pool)
 	exerciseRepo := repository.NewExerciseRepo(db.Pool)
 	submissionRepo := repository.NewSubmissionRepo(db.Pool)
+	learningMaterialRepo := repository.NewLearningMaterialRepo(db.Pool)
 	// userRepo := repository.NewUserRepo(db.Pool) // Not used yet in dogfooding MVP
 	logger.Logger.Info("repositories initialized successfully")
 
@@ -128,6 +130,7 @@ func main() {
 		exerciseRepo,
 		submissionRepo,
 	)
+	learningMaterialService := learningmaterials.NewService(learningMaterialRepo)
 	logger.Logger.Info("domain services initialized successfully")
 
 	// Create API handlers (HTTP adapters)
@@ -136,6 +139,7 @@ func main() {
 	techTreeHandler := techtrees.NewTechTreeHandler(learningService)
 	nodeHandler := techtrees.NewNodeHandler(learningService)
 	exerciseHandler := exercises.NewExerciseHandler(contentService)
+	learningMaterialHandler := learningmaterials.NewHandler(learningMaterialService)
 	logger.Logger.Info("API handlers initialized with domain services")
 
 	// Create Echo instance
@@ -173,6 +177,13 @@ func main() {
 	e.POST("/api/code/run/:exerciseId", submissionHandler.RunCode)
 	e.POST("/api/submission/:exerciseId", submissionHandler.SubmitToExercise)
 	e.GET("/api/pool/status", submissionHandler.GetPoolStatus)
+
+	// Learning materials routes
+	e.GET("/api/nodes/:nodeId/materials", learningMaterialHandler.GetByNode)
+	e.POST("/api/nodes/:nodeId/materials", learningMaterialHandler.Create)
+	e.GET("/api/materials/:id", learningMaterialHandler.GetByID)
+	e.PUT("/api/materials/:id", learningMaterialHandler.Update)
+	e.DELETE("/api/materials/:id", learningMaterialHandler.Delete)
 
 	// Start server
 	logger.Logger.Info("application ready",
