@@ -84,3 +84,16 @@ cd app && migrate create -ext sql -dir migrations -seq name  # New migration
 - `app/features/*/doc.go` - Feature documentation
 - `app/repository/repository.go` - All repository interfaces
 - `app/main.go` - Dependency injection, all routes
+
+## Learning Mode (Go Training)
+
+**MUST follow when writing Go code:**
+- Proactively include `TODO(human)` opportunities for any Go code involving:
+  - Error handling patterns (when to wrap, when to return early)
+  - Interface design and method signatures
+  - Struct definitions and field choices
+  - Business logic with multiple valid approaches
+  - Concurrency patterns (goroutines, channels, mutexes)
+- Present "Learn by Doing" blocks and **wait for human implementation** before continuing
+- Focus insights on Go idioms, patterns, and best practices
+- Prioritize learning over speed - pause for meaningful contributions even on smaller code blocks
