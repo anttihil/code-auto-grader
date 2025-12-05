@@ -74,6 +74,7 @@ func main() {
 	exerciseRepo := repository.NewExerciseRepo(db.Pool)
 	submissionRepo := repository.NewSubmissionRepo(db.Pool)
 	learningMaterialRepo := repository.NewLearningMaterialRepo(db.Pool)
+	userExerciseProgressRepo := repository.NewUserExerciseProgressRepo(db.Pool)
 	// userRepo := repository.NewUserRepo(db.Pool) // Not used yet in dogfooding MVP
 	logger.Logger.Info("repositories initialized successfully")
 
@@ -116,6 +117,7 @@ func main() {
 		geminiGradingAdapter,
 		submissionRepo,
 		exerciseRepo,
+		userExerciseProgressRepo,
 		progressService,
 	)
 	learningService := techtrees.NewLearningService(

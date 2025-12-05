@@ -89,7 +89,6 @@ func createMockSubmissionResult() *SubmissionResult {
 		TestScore:     100,
 		AIScore:       90,
 		TotalScore:    96,
-		AttemptNumber: 1,
 	}
 }
 
@@ -163,7 +162,6 @@ func TestSubmitToExercise_HappyPath(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &response)
 	assert.Equal(t, "submission-123", response.SubmissionID)
 	assert.Equal(t, 96, response.TotalScore)
-	assert.Equal(t, 1, response.AttemptNumber)
 
 	mockService.AssertExpectations(t)
 }

@@ -168,6 +168,37 @@ func (m *mockProgressRepository) UpdateMastery(ctx context.Context, userID, node
 	return args.Error(0)
 }
 
+// mockUserExerciseProgressRepository mocks the UserExerciseProgressRepository interface
+type mockUserExerciseProgressRepository struct {
+	mock.Mock
+}
+
+func (m *mockUserExerciseProgressRepository) GetByUserAndExercise(ctx context.Context, userID, exerciseID string) (*models.UserExerciseProgress, error) {
+	args := m.Called(ctx, userID, exerciseID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.UserExerciseProgress), args.Error(1)
+}
+
+func (m *mockUserExerciseProgressRepository) GetByUserAndNode(ctx context.Context, userID, nodeID string) ([]*models.UserExerciseProgress, error) {
+	args := m.Called(ctx, userID, nodeID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.UserExerciseProgress), args.Error(1)
+}
+
+func (m *mockUserExerciseProgressRepository) UpsertProgress(ctx context.Context, progress *models.UserExerciseProgress) error {
+	args := m.Called(ctx, progress)
+	return args.Error(0)
+}
+
+func (m *mockUserExerciseProgressRepository) UpdateHelpCounts(ctx context.Context, userID, exerciseID string, addedAICount, addedAttempts int) error {
+	args := m.Called(ctx, userID, exerciseID, addedAICount, addedAttempts)
+	return args.Error(0)
+}
+
 // ============================================================================
 // Helper Functions for Tests
 // ============================================================================
@@ -225,7 +256,6 @@ func createTestSubmission(userID, exerciseID string, score int) *models.Submissi
 		ExerciseID:         uuid.MustParse(exerciseID),
 		SubmittedCode:      "function add(a, b) { return a + b; }",
 		Language:           "javascript",
-		AttemptNumber:      1,
 		ExecutionTimeMs:    &execTime,
 		ExecutionOutput:    &execOutput,
 		ExecutionError:     nil,
@@ -248,45 +278,53 @@ func TestNewGradingService(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
 	t.Run("creates service with all dependencies", func(t *testing.T) {
-		service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+		service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 		assert.NotNil(t, service)
 		assert.Equal(t, mockExecutor, service.executor)
 		assert.Equal(t, mockEvaluator, service.evaluator)
 		assert.Equal(t, mockSubmissionRepo, service.submissionRepo)
 		assert.Equal(t, mockExerciseRepo, service.exerciseRepo)
+		assert.Equal(t, mockUserExerciseProgressRepo, service.userExerciseProgressRepo)
 		assert.Equal(t, progressService, service.progressService)
 	})
 
 	t.Run("panics when executor is nil", func(t *testing.T) {
 		assert.Panics(t, func() {
-			NewGradingService(nil, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+			NewGradingService(nil, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 		})
 	})
 
 	t.Run("panics when evaluator is nil", func(t *testing.T) {
 		assert.Panics(t, func() {
-			NewGradingService(mockExecutor, nil, mockSubmissionRepo, mockExerciseRepo, progressService)
+			NewGradingService(mockExecutor, nil, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 		})
 	})
 
 	t.Run("panics when submissionRepo is nil", func(t *testing.T) {
 		assert.Panics(t, func() {
-			NewGradingService(mockExecutor, mockEvaluator, nil, mockExerciseRepo, progressService)
+			NewGradingService(mockExecutor, mockEvaluator, nil, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 		})
 	})
 
 	t.Run("panics when exerciseRepo is nil", func(t *testing.T) {
 		assert.Panics(t, func() {
-			NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, nil, progressService)
+			NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, nil, mockUserExerciseProgressRepo, progressService)
 		})
 	})
 
-	t.Run("panics when progressRepo is nil", func(t *testing.T) {
+	t.Run("panics when userExerciseProgressRepo is nil", func(t *testing.T) {
 		assert.Panics(t, func() {
-			NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, nil)
+			NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, nil, progressService)
+		})
+	})
+
+	t.Run("panics when progressService is nil", func(t *testing.T) {
+		assert.Panics(t, func() {
+			NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, nil)
 		})
 	})
 }
@@ -302,9 +340,10 @@ func TestSubmitCode_HappyPath(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -335,7 +374,6 @@ func TestSubmitCode_HappyPath(t *testing.T) {
 	}, nil)
 
 	// Mock submission count (for attempt number)
-	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
 
 	// Mock submission creation
 	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
@@ -344,6 +382,7 @@ func TestSubmitCode_HappyPath(t *testing.T) {
 	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(
 		nil, nil,
 	)
+	mockUserExerciseProgressRepo.On("UpdateHelpCounts", ctx, userID, exerciseID, 0, 1).Return(nil)
 	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
 
 	// Execute
@@ -360,7 +399,6 @@ func TestSubmitCode_HappyPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotEmpty(t, result.SubmissionID)
-	assert.Equal(t, 1, result.AttemptNumber)
 	assert.NotNil(t, result.TestResults)
 	assert.Equal(t, 2, result.TestResults.PassedTests)
 	assert.Equal(t, 2, result.TestResults.TotalTests)
@@ -383,9 +421,10 @@ func TestSubmitCode_SimilarityRejection_Identical(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -427,9 +466,10 @@ func TestSubmitCode_SimilarityRejection_TrivialChanges(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -471,9 +511,10 @@ func TestSubmitCode_ExerciseNotFound(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -508,9 +549,10 @@ func TestSubmitCode_AIEvaluationFailure_ContinuesWithFallback(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -534,7 +576,6 @@ func TestSubmitCode_AIEvaluationFailure_ContinuesWithFallback(t *testing.T) {
 	)
 
 	// Mock submission count
-	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
 
 	// Mock submission creation
 	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
@@ -543,6 +584,7 @@ func TestSubmitCode_AIEvaluationFailure_ContinuesWithFallback(t *testing.T) {
 	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(
 		nil, nil,
 	)
+	mockUserExerciseProgressRepo.On("UpdateHelpCounts", ctx, userID, exerciseID, 0, 1).Return(nil)
 	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
 
 	// Execute
@@ -581,9 +623,10 @@ func TestGetPoolStatus(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	expectedStatus := map[string]interface{}{
 		"javascript": map[string]interface{}{
@@ -615,9 +658,10 @@ func TestRunCodeService_HappyPath(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	exercise := createTestExercise()
@@ -669,9 +713,10 @@ func TestRunCode_PartialTestPass(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	exercise := createTestExercise()
@@ -716,9 +761,10 @@ func TestRunCode_ExerciseNotFound(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	exerciseID := "nonexistent-exercise-id"
@@ -752,9 +798,10 @@ func TestRunCode_ExecutionError(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	exercise := createTestExercise()
@@ -828,9 +875,10 @@ func TestShouldRequestAIFeedback(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	t.Run("returns false when AI weight is 0", func(t *testing.T) {
 		exercise := createTestExerciseWithAIConfig(
@@ -907,9 +955,10 @@ func TestSubmitCode_SkipsAIWhenWeightIsZero(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -936,13 +985,13 @@ func TestSubmitCode_SkipsAIWhenWeightIsZero(t *testing.T) {
 	// DO NOT set up mockEvaluator expectations - it should NOT be called
 
 	// Mock submission count
-	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
 
 	// Mock submission creation
 	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
 
 	// Mock progress repository
 	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(nil, nil)
+	mockUserExerciseProgressRepo.On("UpdateHelpCounts", ctx, userID, exerciseID, 0, 1).Return(nil)
 	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
 
 	// Execute
@@ -981,9 +1030,10 @@ func TestSubmitCode_SkipsAIWhenNoCriteriaOrPrompt(t *testing.T) {
 	mockSubmissionRepo := new(mockSubmissionRepository)
 	mockExerciseRepo := new(mockExerciseRepository)
 	mockProgressRepo := new(mockProgressRepository)
+	mockUserExerciseProgressRepo := new(mockUserExerciseProgressRepository)
 	progressService := progress.NewService(mockProgressRepo)
 
-	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, progressService)
+	service := NewGradingService(mockExecutor, mockEvaluator, mockSubmissionRepo, mockExerciseRepo, mockUserExerciseProgressRepo, progressService)
 
 	ctx := context.Background()
 	userID := "00000000-0000-0000-0000-000000000001"
@@ -1008,13 +1058,13 @@ func TestSubmitCode_SkipsAIWhenNoCriteriaOrPrompt(t *testing.T) {
 	mockExecutor.On("ExecuteCodeWithContext", ctx, mock.Anything, "javascript").Return(execResult)
 
 	// Mock submission count
-	mockSubmissionRepo.On("CountAttempts", ctx, userID, exerciseID).Return(0, nil)
 
 	// Mock submission creation
 	mockSubmissionRepo.On("Create", ctx, mock.AnythingOfType("*models.Submission")).Return(nil)
 
 	// Mock progress repository
 	mockProgressRepo.On("GetByUserAndNode", ctx, userID, exercise.NodeID.String()).Return(nil, nil)
+	mockUserExerciseProgressRepo.On("UpdateHelpCounts", ctx, userID, exerciseID, 0, 1).Return(nil)
 	mockProgressRepo.On("Upsert", ctx, mock.AnythingOfType("*models.UserProgress")).Return(nil)
 
 	// Execute

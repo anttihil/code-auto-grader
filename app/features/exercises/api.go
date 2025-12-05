@@ -82,7 +82,6 @@ func (h *ExerciseHandler) GetExercise(c echo.Context) error {
 			AIScore:            aiScore,
 			ExecutionTimeMs:    execTimeMs,
 			AIEvaluationTimeMs: aiEvalTimeMs,
-			AttemptNumber:      sub.AttemptNumber,
 			TotalScore:         totalScore,
 			CreatedAt:          sub.CreatedAt,
 		}

@@ -84,7 +84,6 @@ interface Submission {
   ai_score: number;
   execution_time_ms: number;
   ai_evaluation_time_ms: number;
-  attempt_number: number;
   total_score: number;
   created_at: string;
 }
@@ -401,8 +400,6 @@ function App() {
         alert(errorData.message || errorData.error || "Failed to submit code. Please try again.");
         return;
       }
-
-      const data = await response.json();
 
       // Reload exercise to get updated submission history
       await loadExercise(exercise.id);

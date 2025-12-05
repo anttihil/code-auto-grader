@@ -17,11 +17,12 @@ import (
 
 // GradingService handles code submission, test execution, AI evaluation, and scoring
 type GradingService struct {
-	executor        CodeExecutor
-	evaluator       AIEvaluator
-	submissionRepo  repository.SubmissionRepository
-	exerciseRepo    repository.ExerciseRepository
-	progressService *progress.Service
+	executor                 CodeExecutor
+	evaluator                AIEvaluator
+	submissionRepo           repository.SubmissionRepository
+	exerciseRepo             repository.ExerciseRepository
+	userExerciseProgressRepo repository.UserExerciseProgressRepository
+	progressService          *progress.Service
 }
 
 // NewGradingService creates a new grading service with required dependencies
@@ -30,6 +31,7 @@ func NewGradingService(
 	evaluator AIEvaluator,
 	submissionRepo repository.SubmissionRepository,
 	exerciseRepo repository.ExerciseRepository,
+	userExerciseProgressRepo repository.UserExerciseProgressRepository,
 	progressService *progress.Service,
 ) *GradingService {
 	if executor == nil {
@@ -44,16 +46,20 @@ func NewGradingService(
 	if exerciseRepo == nil {
 		panic("exercise repository is required")
 	}
+	if userExerciseProgressRepo == nil {
+		panic("user exercise progress repository is required")
+	}
 	if progressService == nil {
 		panic("progress service is required")
 	}
 
 	return &GradingService{
-		executor:        executor,
-		evaluator:       evaluator,
-		submissionRepo:  submissionRepo,
-		exerciseRepo:    exerciseRepo,
-		progressService: progressService,
+		executor:                 executor,
+		evaluator:                evaluator,
+		submissionRepo:           submissionRepo,
+		exerciseRepo:             exerciseRepo,
+		userExerciseProgressRepo: userExerciseProgressRepo,
+		progressService:          progressService,
 	}
 }
 
@@ -206,10 +212,18 @@ func (s *GradingService) SubmitCode(ctx context.Context, req SubmitCodeRequest, 
 	logger.Logger.Info("submission saved successfully",
 		slog.String("request_id", requestID),
 		slog.String("submission_id", submission.ID.String()),
-		slog.Int("attempt_number", submission.AttemptNumber),
 	)
 
-	// 7. Update user progress and mastery tracking
+	// 7. Update per-exercise progress (increment attempts count)
+	if err := s.userExerciseProgressRepo.UpdateHelpCounts(ctx, req.UserID, req.ExerciseID, 0, 1); err != nil {
+		logger.Logger.Warn("failed to update exercise progress attempts",
+			slog.String("request_id", requestID),
+			slog.String("error", err.Error()),
+		)
+		// Don't fail the submission if progress update fails
+	}
+
+	// 8. Update user progress and mastery tracking
 	if err := s.updateUserProgress(ctx, req.UserID, exercise.NodeID.String(), totalScore, requestID); err != nil {
 		logger.Logger.Warn("failed to update user progress",
 			slog.String("request_id", requestID),
@@ -228,7 +242,6 @@ func (s *GradingService) SubmitCode(ctx context.Context, req SubmitCodeRequest, 
 		TestScore:       testScore,
 		AIScore:         aiScore,
 		TotalScore:      totalScore,
-		AttemptNumber:   submission.AttemptNumber,
 	}, nil
 }
 
@@ -634,13 +647,6 @@ func (s *GradingService) saveSubmission(
 	totalScore *int,
 	requestID string,
 ) (*models.Submission, error) {
-	// Get attempt number
-	attemptCount, err := s.submissionRepo.CountAttempts(ctx, userID, exerciseID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count attempts: %w", err)
-	}
-	attemptNumber := attemptCount + 1
-
 	// Create submission
 	submission := &models.Submission{
 		ID:                 uuid.New(),
@@ -657,7 +663,6 @@ func (s *GradingService) saveSubmission(
 		AIEvaluationTimeMs: aiEvaluationTimeMs,
 		TestScore:          testScore,
 		TotalScore:         totalScore,
-		AttemptNumber:      attemptNumber,
 	}
 
 	// Save to database

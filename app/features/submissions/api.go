@@ -115,7 +115,6 @@ func (h *SubmissionHandler) SubmitToExercise(c echo.Context) error {
 		TestScore:       result.TestScore,
 		AIScore:         result.AIScore,
 		TotalScore:      result.TotalScore,
-		AttemptNumber:   result.AttemptNumber,
 	})
 }
 

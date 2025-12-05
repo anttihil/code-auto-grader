@@ -17,9 +17,9 @@ func CreateSubmissionWithProgress(ctx context.Context, tx pgx.Tx, submission *mo
 			id, user_id, exercise_id, submitted_code, language,
 			execution_output, execution_error, execution_time_ms,
 			test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-			test_score, total_score, attempt_number
+			test_score, total_score
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING created_at
 	`
 
@@ -38,7 +38,6 @@ func CreateSubmissionWithProgress(ctx context.Context, tx pgx.Tx, submission *mo
 		submission.AIEvaluationTimeMs,
 		submission.TestScore,
 		submission.TotalScore,
-		submission.AttemptNumber,
 	).Scan(&submission.CreatedAt)
 
 	if err != nil {

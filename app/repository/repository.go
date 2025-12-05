@@ -119,6 +119,21 @@ type UserRepository interface {
 	Update(ctx context.Context, user *models.User) error
 }
 
+// UserExerciseProgressRepository defines operations for per-exercise progress tracking
+type UserExerciseProgressRepository interface {
+	// GetByUserAndExercise retrieves the progress by unique user+exercise pair
+	GetByUserAndExercise(ctx context.Context, userID string, exerciseID string) (*models.UserExerciseProgress, error)
+
+	// GetByUserAndNode retrieves all exercise progress for a user within a node
+	GetByUserAndNode(ctx context.Context, userID string, nodeID string) ([]*models.UserExerciseProgress, error)
+
+	// UpsertProgress creates or updates a user exercise progress record
+	UpsertProgress(ctx context.Context, userProgress *models.UserExerciseProgress) error
+
+	// UpdateHelpCounts atomically increments AI help and attempts counters
+	UpdateHelpCounts(ctx context.Context, userID string, exerciseID string, addedAICount int, addedAttempts int) error
+}
+
 // LearningMaterialRepository defines operations for learning material data access
 type LearningMaterialRepository interface {
 	// GetByNodeID retrieves all learning materials for a node, ordered by order_index

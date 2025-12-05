@@ -20,7 +20,6 @@ type SubmissionResult struct {
 	TestScore       int
 	AIScore         int
 	TotalScore      int
-	AttemptNumber   int
 }
 
 // RunCodeRequest represents a code execution request with test cases (no AI evaluation or saving)

@@ -24,7 +24,6 @@ type SubmissionResponse struct {
 	TestScore       int                 `json:"test_score"`
 	AIScore         int                 `json:"ai_score"`
 	TotalScore      int                 `json:"total_score"`
-	AttemptNumber   int                 `json:"attempt_number"`
 }
 
 // RunCodeResponse represents the HTTP response for code execution with test cases

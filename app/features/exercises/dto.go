@@ -53,7 +53,6 @@ type SubmissionSummary struct {
 	AIScore              float64                `json:"ai_score"`
 	ExecutionTimeMs      int                    `json:"execution_time_ms"`
 	AIEvaluationTimeMs   int                    `json:"ai_evaluation_time_ms"`
-	AttemptNumber        int                    `json:"attempt_number"`
 	TotalScore           float64                `json:"total_score"`
 	CreatedAt            time.Time              `json:"created_at"`
 }

@@ -25,7 +25,7 @@ func (r *SubmissionRepo) GetByID(ctx context.Context, id string) (*models.Submis
 		SELECT id, user_id, exercise_id, submitted_code, language,
 		       execution_output, execution_error, execution_time_ms,
 		       test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-		       test_score, total_score, attempt_number, created_at
+		       test_score, total_score, created_at
 		FROM submissions
 		WHERE id = $1
 	`
@@ -46,7 +46,6 @@ func (r *SubmissionRepo) GetByID(ctx context.Context, id string) (*models.Submis
 		&submission.AIEvaluationTimeMs,
 		&submission.TestScore,
 		&submission.TotalScore,
-		&submission.AttemptNumber,
 		&submission.CreatedAt,
 	)
 
@@ -66,10 +65,10 @@ func (r *SubmissionRepo) GetByExercise(ctx context.Context, userID, exerciseID s
 		SELECT id, user_id, exercise_id, submitted_code, language,
 		       execution_output, execution_error, execution_time_ms,
 		       test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-		       test_score, total_score, attempt_number, created_at
+		       test_score, total_score, created_at
 		FROM submissions
 		WHERE user_id = $1 AND exercise_id = $2
-		ORDER BY attempt_number ASC
+		ORDER BY created_at ASC
 	`
 
 	rows, err := r.pool.Query(ctx, query, userID, exerciseID)
@@ -96,7 +95,6 @@ func (r *SubmissionRepo) GetByExercise(ctx context.Context, userID, exerciseID s
 			&submission.AIEvaluationTimeMs,
 			&submission.TestScore,
 			&submission.TotalScore,
-			&submission.AttemptNumber,
 			&submission.CreatedAt,
 		)
 		if err != nil {
@@ -118,10 +116,10 @@ func (r *SubmissionRepo) GetLatestAttempt(ctx context.Context, userID, exerciseI
 		SELECT id, user_id, exercise_id, submitted_code, language,
 		       execution_output, execution_error, execution_time_ms,
 		       test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-		       test_score, total_score, attempt_number, created_at
+		       test_score, total_score, created_at
 		FROM submissions
 		WHERE user_id = $1 AND exercise_id = $2
-		ORDER BY attempt_number DESC
+		ORDER BY created_at DESC
 		LIMIT 1
 	`
 
@@ -141,7 +139,6 @@ func (r *SubmissionRepo) GetLatestAttempt(ctx context.Context, userID, exerciseI
 		&submission.AIEvaluationTimeMs,
 		&submission.TestScore,
 		&submission.TotalScore,
-		&submission.AttemptNumber,
 		&submission.CreatedAt,
 	)
 
@@ -162,9 +159,9 @@ func (r *SubmissionRepo) Create(ctx context.Context, submission *models.Submissi
 			id, user_id, exercise_id, submitted_code, language,
 			execution_output, execution_error, execution_time_ms,
 			test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-			test_score, total_score, attempt_number
+			test_score, total_score
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING created_at
 	`
 
@@ -183,7 +180,6 @@ func (r *SubmissionRepo) Create(ctx context.Context, submission *models.Submissi
 		submission.AIEvaluationTimeMs,
 		submission.TestScore,
 		submission.TotalScore,
-		submission.AttemptNumber,
 	).Scan(&submission.CreatedAt)
 
 	if err != nil {
@@ -230,10 +226,10 @@ func (r *SubmissionRepo) GetByExercisePaginated(ctx context.Context, userID, exe
 		SELECT id, user_id, exercise_id, submitted_code, language,
 		       execution_output, execution_error, execution_time_ms,
 		       test_results, ai_feedback, ai_score, ai_evaluation_time_ms,
-		       test_score, total_score, attempt_number, created_at
+		       test_score, total_score, created_at
 		FROM submissions
 		WHERE user_id = $1 AND exercise_id = $2
-		ORDER BY attempt_number DESC
+		ORDER BY created_at DESC
 		LIMIT $3 OFFSET $4
 	`
 
@@ -261,7 +257,6 @@ func (r *SubmissionRepo) GetByExercisePaginated(ctx context.Context, userID, exe
 			&submission.AIEvaluationTimeMs,
 			&submission.TestScore,
 			&submission.TotalScore,
-			&submission.AttemptNumber,
 			&submission.CreatedAt,
 		)
 		if err != nil {

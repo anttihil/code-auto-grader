@@ -201,7 +201,6 @@ type Submission struct {
 	AIEvaluationTimeMs   *int         `db:"ai_evaluation_time_ms" json:"ai_evaluation_time_ms,omitempty"`
 	TestScore            *int         `db:"test_score" json:"test_score,omitempty"`
 	TotalScore           *int         `db:"total_score" json:"total_score,omitempty"`
-	AttemptNumber        int          `db:"attempt_number" json:"attempt_number"`
 	CreatedAt            time.Time    `db:"created_at" json:"created_at"`
 }
 
@@ -257,12 +256,22 @@ type UserProgress struct {
 	MasteryScore       *float64   `db:"mastery_score" json:"mastery_score,omitempty"`
 	MasteryThreshold   float64    `db:"mastery_threshold" json:"mastery_threshold"`
 	IsMastered         bool       `db:"is_mastered" json:"is_mastered"`
-	AIHelpCount        int        `db:"ai_help_count" json:"ai_help_count"`
 	StartedAt          *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt        *time.Time `db:"completed_at" json:"completed_at,omitempty"`
 	LastActivityAt     *time.Time `db:"last_activity_at" json:"last_activity_at,omitempty"`
 	CreatedAt          time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt          time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+// UserExerciseProgress tracks per-exercise progress and AI help usage
+type UserExerciseProgress struct {
+	ID            uuid.UUID `db:"id" json:"id"`
+	UserID        uuid.UUID `db:"user_id" json:"user_id"`
+	ExerciseID    uuid.UUID `db:"exercise_id" json:"exercise_id"`
+	AIHelpCount   int       `db:"ai_help_count" json:"ai_help_count"`
+	AttemptsCount int       `db:"attempts_count" json:"attempts_count"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // ============================================
@@ -400,5 +409,4 @@ type SubmissionResponse struct {
 	TestScore       *int         `json:"test_score,omitempty"`
 	AIScore         *int         `json:"ai_score,omitempty"`
 	TotalScore      *int         `json:"total_score,omitempty"`
-	AttemptNumber   int          `json:"attempt_number"`
 }
