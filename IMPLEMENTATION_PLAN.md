@@ -1,100 +1,42 @@
-# Implementation Plan
+# Development Plan
 
-## Current Status
+Code Auto-Grader helps self-taught developers build programming skills through lessons, hands-on practice, and feedback tied to their code. The single-user Rust prototype has three seeded nodes and nine exercises, a browser editor, Docker execution, submission history, and progress tracking. The next milestone is a reliable Rust Basics learning loop.
 
-**Dogfooding MVP: ✅ COMPLETE**
+## Phase 1 — Validate the Rust learning loop
 
-Working system with:
-- Rust tech tree (3 nodes, 9 exercises)
-- Full submission flow with Docker execution + AI feedback
-- Mastery tracking (60% tests + 40% AI, 80% threshold)
-- Frontend integrated with all database APIs
+1. **Fix grading and progression.** Give each exercise one function to implement or repair, with a clear expected result. Test the learner’s implementation and verify that the starter, an incorrect solution, and the reference solution produce the expected results. Use test-only grading for deterministic tasks. Reserve automatic AI review for exercises where implementation choices, design, or code quality warrant it. Store raw test and AI percentages and the weights used for each submission. Distinguish a skipped or unavailable AI review from a score of zero.
+2. **Make mastery reliable.** Count each mastered exercise once, using its best qualifying result and the node’s mastery threshold. Unlock nodes when their prerequisites are met. Make submission and progress updates consistent across retries and partial failures. Verify the behavior with existing submission history and concurrent attempts.
+3. **Connect lessons, exercises, and help.** Seed a lesson for each node and show it in the learner UI. Keep exercise instructions focused on what to implement and put concept explanations in the lesson. Offer a hint or **Explain this error** after a failed run. Use the actual compiler diagnostic or test failure to guide the learner. Track attempts and help requests per exercise, and improve lessons when learners repeatedly get stuck on the same step.
+4. **Improve the editor workflow.** Preserve code after a submission and make the editor the main workspace. Use collapsible navigation for the tree, lessons, and exercise instructions. Add a resizable results panel with separate tabs for execution output and AI feedback. Use accessible light and dark terminal themes. [Terminal design reference](dogfooding/90_STYLE_TERMINAL.png)
 
-**Next Step:** Personal Rust learning validation → then decide on multi-user MVP.
+**Exit criteria.** From a fresh seed, a learner can read the Basics lesson, recover from a failed run using an explanation, submit a passing solution, retry without inflating progress, and unlock Ownership & Borrowing after completing Basics. Apply the same pattern to the other two seeded nodes. Check that learners can explain and fix an ownership error and solve a related exercise independently after receiving feedback.
 
----
+### Rust curriculum
 
-## Completed (Reference Only)
+| Node | Practice | Prerequisites | Scope |
+| --- | --- | --- | --- |
+| Rust Basics | Variables and mutability, functions and return values, control flow | None | Seeded |
+| Ownership & Borrowing | Moves, references, borrowing rules | Rust Basics | Seeded |
+| Structs & Enums | Structs, methods, enum variants and pattern matching | Ownership & Borrowing | Seeded |
+| Collections & Strings | Vectors, strings, counting with hash maps | Ownership & Borrowing | Next content after validation |
+| Error Handling | `Option`, `Result`, error propagation | Ownership & Borrowing | Next content after validation |
+| Traits & Generics | Traits, generic functions and types, trait bounds | Structs & Enums, Collections & Strings, Error Handling | Later |
+| Iterators & Closures | Capturing variables, iterator methods, implementing `Iterator` | Traits & Generics | Optional |
 
-| Phase | Component | Status |
-|-------|-----------|--------|
-| Week 1 | PostgreSQL schema, migrations, repositories | ✅ |
-| Week 2 | Rust content (9 exercises), seeding system | ✅ |
-| Week 3 | APIs, code execution, AI eval, mastery tracking | ✅ |
-| Week 3 | Frontend: tech tree, nodes, exercises, history | ✅ |
+## Phase 2 — Private multi-user beta
 
----
+- Replace the shared learner identity with authenticated accounts and isolate submission history and progress per learner. Protect content editing and manual unlocks with admin permissions. Verify runner isolation, execution quotas, and AI request limits before accepting external submissions.
+- Add conceptual text exercises and focused debugging tasks. Give admins the ability to preview and edit content as beta feedback comes in.
+- Start with a small cohort and expand toward 50 learners through developer communities. Collect feedback in the app. Baseline completion, repeat practice, AI helpfulness, and issues that block learning. Initial targets are 20% of beta users completing all seeded nodes and 70% of respondents finding AI feedback helpful.
+- Add automated checks for grading, progression, and account isolation. Track AI usage and cost per learner and set budget alerts.
 
-## Multi-User MVP (Months 1-3)
+## Phase 3 — Expand learning and content
 
-**Prerequisite:** Dogfooding validation confirms learning loop works.
+- Recommend the next node using mastery, time spent, and recurring errors. Explain the recommendation when the learner finishes a node.
+- Add multi-step projects with repository evaluation and system design exercises with diagrams and written explanations.
+- Add exercise voting and community submissions with moderator review. Pilot generated lessons and exercises from uploaded learning materials with human review before publishing.
+- Use learning data to tune difficulty, recommend help when learners get stuck, and measure where they disengage. Evaluate streaks and other motivation features against repeat practice.
 
-### Authentication & Users
-- Email/password + OAuth (Google, GitHub) via `goth`
-- JWT sessions, password reset, email verification
-- User profiles with progress tracking
-- Rate limiting on auth endpoints
+## Phase 4 — Grow after beta
 
-### Additional Exercise Types
-- **Conceptual**: Plain text submissions, no code execution
-- **Debugging**: Broken code to fix, diff viewer in Monaco
-
-### Admin Tools
-- Manual node unlock controls
-- Content preview/edit CRUD UI
-
-### Polish & Beta
-- 50 beta users from r/learnprogramming, HN
-- In-app feedback survey
-- Performance optimization (caching, lazy loading)
-
-**Success Criteria:**
-- 20%+ users complete all nodes
-- 70%+ report AI feedback helpful
-- <5% critical bugs
-
----
-
-## Phase 2 (Months 4-6): Automation
-
-### LLM Progression Agent
-- Analyze mastery scores, time spent, error patterns
-- Recommend next node with rationale
-- "What's Next?" modal after node completion
-
-### New Exercise Types
-- **Project-based**: Multi-step tasks, GitHub repo evaluation
-- **System Design**: Excalidraw diagrams + written explanation
-
-### Community Features
-- Exercise voting (upvote/downvote)
-- User-generated content with admin approval
-
----
-
-## Phase 3-4 (Months 7-12): Scale
-
-- **Content Generation**: Upload PDFs/ePubs → LLM generates nodes + exercises
-- **Adaptive Difficulty**: Skip easy variants, offer hints when stuck
-- **Analytics**: Learning velocity, struggle points, churn prediction
-- **Motivation**: Achievements, streaks, personalized encouragement
-
----
-
-## Technical Debt Checklist
-
-- [ ] 70%+ test coverage by Phase 2
-- [ ] Extract progression logic to separate service
-- [ ] Quarterly security audits
-- [ ] LLM cost monitoring with budget alerts
-
----
-
-## Key Metrics
-
-| Category | Metric | Target |
-|----------|--------|--------|
-| Engagement | Exercises/week | 5+ |
-| Learning | Nodes mastered/month | 2+ |
-| Retention | Monthly churn | <5% |
-| Content | Exercise completion rate | 80%+ |
+Start with self-taught developers, followed by students and teams. Recruit through developer communities, demos, and educational content. Track exercises completed per week, nodes mastered per month, and retention. Test demand for paid learning paths and contextual feedback before investing in paid acquisition. If team pilots demonstrate demand, expand into custom learning paths and team reporting.

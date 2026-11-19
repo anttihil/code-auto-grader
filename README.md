@@ -2,6 +2,8 @@
 
 LLM-based code learning platform that uses AI to generate coding exercises, execute code securely in Docker containers, and provide intelligent feedback on student submissions.
 
+See the [development plan](IMPLEMENTATION_PLAN.md) for the Rust curriculum and upcoming phases.
+
 ## Features
 
 - **AI-Powered Exercise Generation**: Generate custom coding exercises using Google Gemini AI
